@@ -48,14 +48,14 @@ contract Raila is IERC721, IERC721Metadata {
 
     error ERC721InvalidReceiver(address receiver);
 
-    uint256 constant ONE = 1000000000000000000;
+    uint256 internal constant ONE = 1000000000000000000;
 
-    IERC20 immutable USD;
-    IProofOfHumanity immutable PROOF_OF_HUMANITY;
+    IERC20 public immutable USD;
+    IProofOfHumanity public immutable PROOF_OF_HUMANITY;
 
     // at the very least, to be paid in full, loans will pay x days of interest.
     // that way creditor is guaranteed to be paid, if loan is eventually paid, some interest.
-    uint256 immutable MINIMUM_INTEREST_PERIOD;
+    uint256 public immutable MINIMUM_INTEREST_PERIOD;
 
     // basis points. fees are only paid after the initial loan is covered.
     // fees are sent to raila treasury (maintenance, bounties, server costs...)
@@ -70,11 +70,12 @@ contract Raila is IERC721, IERC721Metadata {
     mapping(address => mapping(address => bool)) public isApprovedForAll; //for erc721 isApprovedForAll
     uint256 lastRequestId;
 
-    constructor(address _treasury, uint256 _minimumInterestPeriod, address _usdToken, address _poh) {
+    constructor(address _treasury, uint256 _minimumInterestPeriod, address _usdToken, address _poh, uint16 _feeRate) {
         RAILA_TREASURY = _treasury;
         MINIMUM_INTEREST_PERIOD = _minimumInterestPeriod; // should be 90 days?
         USD = IERC20(_usdToken);
         PROOF_OF_HUMANITY = IProofOfHumanity(_poh);
+        feeRate = _feeRate;
     }
 
     function createRequest(
@@ -83,7 +84,7 @@ contract Raila is IERC721, IERC721Metadata {
         uint256 defaultsAt,
         string calldata requestMetadata
     ) external returns (uint256) {
-        bytes20 humanityId = PROOF_OF_HUMANITY.addressToHumanity(msg.sender);
+        bytes20 humanityId = PROOF_OF_HUMANITY.humanityOf(msg.sender);
         require(humanityId != bytes20(0));
         uint256 requestId = borrowerToRequestId[humanityId];
         require(requestId == 0);
@@ -102,7 +103,7 @@ contract Raila is IERC721, IERC721Metadata {
     }
 
     function closeRequest() external {
-        bytes20 humanityId = PROOF_OF_HUMANITY.addressToHumanity(msg.sender);
+        bytes20 humanityId = PROOF_OF_HUMANITY.humanityOf(msg.sender);
         require(humanityId != bytes20(0));
         uint256 requestId = borrowerToRequestId[humanityId];
         require(requestId != 0);
