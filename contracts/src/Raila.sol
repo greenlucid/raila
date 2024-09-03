@@ -19,30 +19,33 @@ contract Raila is IERC721, IERC721Metadata {
     }
 
     struct Request {
+        // 1st slot: 48 bits remaining
         bytes20 debtor; // humanityId of the debtor
         uint40 createdAtBlock; // supports subgraph-free interfaces by reading event at block
         RequestStatus status;
-        // 48 bits remaining on 1st slot
+        // 2nd slot: 0 bits remaining
         address creditor; // paying the loan directs the money to creditor. creditor is transferrable.
         uint40 fundedAt; // for nft vanity
         uint40 lastUpdatedAt; // used to calculate accrued interest
         uint16 feeRate; // fee rate at the time Loan is accepted
-        // no bits remaining on 2nd slot
+        // 3rd slot
         UD60x18 interestRatePerSecond; // offered by the borrower (potential ux issue? frontend could guide)
-        // no bits remaining on 3rd slot
+        // 4th slot
         uint256 originalDebt; // if Open, requested amount. if Loan, remaining from original
-        // no bits remaining on 4th slot
+        // 5th slot
         uint256 totalDebt;
-        // no bits remaining on 5th slot
+        // 6th slot
         uint256 defaultsAt;
-        // no bits remaining on 6th slot
     }
 
-    event RequestCreation(bytes20 indexed debtor, uint256 indexed requestId, uint256 loanAmount, string requestMetadata);
+    event RequestCreation(
+        bytes20 indexed debtor, uint256 indexed requestId, uint256 loanAmount, string requestMetadata
+    );
     event RequestCanceled(bytes20 indexed debtor, uint256 indexed requestId);
     // there is no need for "LoanAccepted", you can filter for erc721 Transfer(0, ?, requestId) to see mint.
     event LoanRepayment(uint256 indexed requestId, uint256 repaidAmount, uint256 pendingDebt);
     // there is no need for "LoanClosed", you can filter for erc721 Transfer(?, 0, requestId) to see burn.
+
     error ERC721InvalidReceiver(address receiver);
 
     uint256 constant ONE = 1000000000000000000;
@@ -67,10 +70,7 @@ contract Raila is IERC721, IERC721Metadata {
     mapping(address => mapping(address => bool)) public isApprovedForAll; //for erc721 isApprovedForAll
     uint256 lastRequestId;
 
-    constructor(
-        address _treasury, uint256 _minimumInterestPeriod, address _usdToken,
-        address _poh
-    ) {
+    constructor(address _treasury, uint256 _minimumInterestPeriod, address _usdToken, address _poh) {
         RAILA_TREASURY = _treasury;
         MINIMUM_INTEREST_PERIOD = _minimumInterestPeriod; // should be 90 days?
         USD = IERC20(_usdToken);
@@ -96,7 +96,7 @@ contract Raila is IERC721, IERC721Metadata {
         // request.status is already RequestStatus.Open;
         request.interestRatePerSecond = interestRatePerSecond;
         request.originalDebt = loanAmount;
-        request.defaultsAt = defaultsAt; 
+        request.defaultsAt = defaultsAt;
         emit RequestCreation(humanityId, lastRequestId, loanAmount, requestMetadata);
         return lastRequestId;
     }
@@ -126,9 +126,7 @@ contract Raila is IERC721, IERC721Metadata {
         // we initially advance the lastUpdatedAt timestamp by the minimum period.
         // and we set the totalDebt to be originalDebt + those interests.
         request.lastUpdatedAt = uint40(block.timestamp + MINIMUM_INTEREST_PERIOD);
-        request.totalDebt = interestHelper(
-            request.originalDebt, request.interestRatePerSecond, MINIMUM_INTEREST_PERIOD
-        );
+        request.totalDebt = interestHelper(request.originalDebt, request.interestRatePerSecond, MINIMUM_INTEREST_PERIOD);
         // erc721 mint
         balanceOf[msg.sender]++;
         emit Transfer(address(0), msg.sender, requestId);
@@ -142,8 +140,7 @@ contract Raila is IERC721, IERC721Metadata {
         // if minimum period has not passed yet, do not update it
         if (block.timestamp > request.lastUpdatedAt) {
             request.totalDebt = interestHelper(
-                request.totalDebt, request.interestRatePerSecond,
-                block.timestamp - uint256(request.lastUpdatedAt)
+                request.totalDebt, request.interestRatePerSecond, block.timestamp - uint256(request.lastUpdatedAt)
             );
             request.lastUpdatedAt = uint40(block.timestamp);
         }
@@ -152,10 +149,7 @@ contract Raila is IERC721, IERC721Metadata {
         uint256 amountBuffer = amount;
         if (request.originalDebt > 0) {
             // if there is original debt pending, pay towards it.
-            uint256 deductionToOriginalDebt = amountBuffer > request.originalDebt
-                ? request.originalDebt
-                : amountBuffer
-            ;
+            uint256 deductionToOriginalDebt = amountBuffer > request.originalDebt ? request.originalDebt : amountBuffer;
 
             request.originalDebt = request.originalDebt - deductionToOriginalDebt;
             request.totalDebt = request.totalDebt - deductionToOriginalDebt;
@@ -165,10 +159,8 @@ contract Raila is IERC721, IERC721Metadata {
         }
 
         if (amountBuffer > 0) {
-            uint256 deductionToTotalDebt = amountBuffer > request.totalDebt
-                ? request.totalDebt
-                : amountBuffer
-            ;
+            uint256 deductionToTotalDebt = amountBuffer > request.totalDebt ? request.totalDebt : amountBuffer;
+
             request.totalDebt = request.totalDebt - deductionToTotalDebt;
             // regular debt directs some of the money as fees to treasury
             uint256 feeAmount = deductionToTotalDebt * feeRate / 10_000;
@@ -195,7 +187,7 @@ contract Raila is IERC721, IERC721Metadata {
         _burn(requestId);
     }
 
-    function interestHelper(uint256 amount, UD60x18 interest, uint256 time) internal pure returns(uint256) {
+    function interestHelper(uint256 amount, UD60x18 interest, uint256 time) internal pure returns (uint256) {
         uint256 compoundedInterest = powu(interest, time).unwrap();
         uint256 compoundedAmount = amount * compoundedInterest / ONE;
         return compoundedAmount;
@@ -203,8 +195,8 @@ contract Raila is IERC721, IERC721Metadata {
 
     // erc721 stuff
 
-    string constant public name = "Raila";
-    string constant public symbol = "LOAN";
+    string public constant name = "Raila";
+    string public constant symbol = "LOAN";
 
     function _burn(uint256 _tokenId) internal {
         Request storage request = requests[_tokenId];
@@ -257,7 +249,7 @@ contract Raila is IERC721, IERC721Metadata {
     function safeTransferFrom(address from, address to, uint256 tokenId) external {
         safeTransferFrom(from, to, tokenId, "");
     }
-    
+
     function transferFrom(address from, address to, uint256 tokenId) external {
         _transferFromPermission(from, tokenId);
         _transfer(from, to, tokenId);
@@ -268,7 +260,8 @@ contract Raila is IERC721, IERC721Metadata {
         if (msg.sender != request.creditor) {
             if (isApprovedForAll[from][msg.sender]) {
                 // do nothing; already approved for all.
-            } else {
+            }
+            else {
                 require(getApproved[tokenId] == msg.sender);
                 // consume the getApproved
                 getApproved[tokenId] = address(0);
@@ -277,31 +270,22 @@ contract Raila is IERC721, IERC721Metadata {
     }
 
     function ownerOf(uint256 tokenId) external view returns (address) {
-        return(requests[tokenId].creditor);
+        return (requests[tokenId].creditor);
     }
 
     function tokenURI(uint256 tokenId) external pure returns (string memory) {
-        return
-            string(
-                abi.encodePacked(
-                    'data:application/json;base64,',
-                    Base64.encode(
-                        bytes(
-                            abi.encodePacked(
-                                '{"name":"Raila Loan","description":"A loan with number ',
-                                tokenId,
-                                '"}'
-                            )
-                        )
-                    )
+        return string(
+            abi.encodePacked(
+                "data:application/json;base64,",
+                Base64.encode(
+                    bytes(abi.encodePacked('{"name":"Raila Loan","description":"A loan with number ', tokenId, '"}'))
                 )
-            );
+            )
+        );
     }
 
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         // 0x80ac58cd == erc721 ; 0x5b5e139f == erc721metadata
         return interfaceId == 0x80ac58cd || interfaceId == 0x5b5e139f;
     }
-
-
 }
