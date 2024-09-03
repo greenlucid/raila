@@ -61,7 +61,7 @@ contract Raila is IERC721, IERC721Metadata {
     // fees are sent to raila treasury (maintenance, bounties, server costs...)
     uint16 public feeRate;
 
-    address immutable RAILA_TREASURY;
+    address public immutable RAILA_TREASURY;
 
     mapping(bytes20 => uint256) public borrowerToRequestId;
     mapping(uint256 => Request) public requests;
@@ -70,7 +70,13 @@ contract Raila is IERC721, IERC721Metadata {
     mapping(address => mapping(address => bool)) public isApprovedForAll; //for erc721 isApprovedForAll
     uint256 lastRequestId;
 
-    constructor(address _treasury, uint256 _minimumInterestPeriod, address _usdToken, address _poh, uint16 _feeRate) {
+    constructor(
+        address _treasury,
+        uint256 _minimumInterestPeriod,
+        IERC20 _usdToken,
+        IProofOfHumanity _poh,
+        uint16 _feeRate
+    ) {
         RAILA_TREASURY = _treasury;
         MINIMUM_INTEREST_PERIOD = _minimumInterestPeriod; // should be 90 days?
         USD = IERC20(_usdToken);
