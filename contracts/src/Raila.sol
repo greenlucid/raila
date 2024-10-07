@@ -68,7 +68,7 @@ contract Raila is IERC721, IERC721Metadata {
     mapping(address => uint256) public balanceOf; // for erc721 balanceOf
     mapping(uint256 => address) public getApproved; // for erc721 getApproveds
     mapping(address => mapping(address => bool)) public isApprovedForAll; //for erc721 isApprovedForAll
-    uint256 lastRequestId;
+    uint256 public lastRequestId;
 
     constructor(
         address _treasury,
@@ -100,7 +100,7 @@ contract Raila is IERC721, IERC721Metadata {
         require(startingDebt < defaultThreshold);
         // create request
         borrowerToRequestId[humanityId] = requestId;
-        lastRequestId++;
+        lastRequestId++; // the first request will have id 1
         Request storage request = requests[lastRequestId];
         request.debtor = humanityId;
         request.createdAtBlock = uint40(block.number);
@@ -108,6 +108,7 @@ contract Raila is IERC721, IERC721Metadata {
         request.interestRatePerSecond = interestRatePerSecond;
         request.originalDebt = loanAmount;
         request.defaultThreshold = defaultThreshold;
+        request.feeRate = feeRate;
         emit RequestCreation(humanityId, lastRequestId, requestMetadata);
         return lastRequestId;
     }
