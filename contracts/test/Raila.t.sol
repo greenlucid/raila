@@ -3,6 +3,7 @@
 pragma solidity ^0.8;
 
 import "forge-std/Test.sol";
+import "forge-std/console.sol";
 import {IProofOfHumanity} from "../src/IProofOfHumanity.sol";
 import {Raila} from "../src/Raila.sol";
 import {ERC20} from "@openzeppelin-contracts/token/ERC20/ERC20.sol";
@@ -32,13 +33,14 @@ contract Constructor is Test {
     }
 
     function test_ConstructorSetsVariables() public {
-        raila = new Raila(address(1000), 86400, usd, poh, 500);
+        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
         assertEq(raila.RAILA_TREASURY(), address(1000));
-        assertEq(raila.MINIMUM_INTEREST_PERIOD(), 86400);
+        assertEq(raila.MINIMUM_INTEREST_PERIOD(), 86400 * 90);
         assertEq(address(raila.USD()), address(usd));
         assertEq(address(raila.PROOF_OF_HUMANITY()), address(poh));
         assertEq(raila.feeRate(), 500);
     }
+    // todo test some core functionality here too, like changing fee base rate, governor etc
 }
 
 contract CreateRequest is Test {
@@ -46,25 +48,120 @@ contract CreateRequest is Test {
     ERC20 usd;
     Raila raila;
 
+    event RequestCreation(
+        bytes20 indexed debtor, uint256 indexed requestId, string requestMetadata
+    );
+
+    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200; 
+
     function setUp() public {
         poh = new MockPoH();
         usd = new PolloCoin(1e18);
-        raila = new Raila(address(1000), 86400, usd, poh, 500);
+        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+    }
+
+    function test_RequestLogs() public {
+        vm.prank(address(1337));
+        vm.expectEmit(true, true, false, true);
+        emit RequestCreation(bytes20(address(69)), 1, "");
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+    }
+
+    function test_RequestReads() public {
+        vm.prank(address(1337));
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        assertEq(raila.lastRequestId(), 1);
+
+        (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
+        uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
+        uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
+        vm.assertEq(debtor, bytes20(address(69)));
+        vm.assertEq(createdAtBlock, block.number);
+        vm.assertEq(uint8(status), uint8(Raila.RequestStatus.Open));
+        vm.assertEq(creditor, address(0));
+        vm.assertEq(fundedAt, 0); // wasn't funded yet
+        vm.assertEq(lastUpdatedAt, 0); 
+        vm.assertEq(feeRate, raila.feeRate());
+        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR);
+        vm.assertEq(originalDebt, 1 ether);
+        vm.assertEq(totalDebt, 0);
+        vm.assertEq(defaultThreshold, 2 ether);
+    }
+
+    function test_RequestZeroDoesNotExistAlwaysContainsEmptyData() public {
+        vm.prank(address(1337));
+        // create a request for good measure, ensure it won't overwrite it
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
+        uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
+        uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(0);
+        vm.assertEq(debtor, bytes20(address(0)));
+        vm.assertEq(createdAtBlock, 0);
+        vm.assertEq(uint8(status), uint8(Raila.RequestStatus.Open));
+        vm.assertEq(creditor, address(0));
+        vm.assertEq(fundedAt, 0); // wasn't funded yet
+        vm.assertEq(lastUpdatedAt, 0); 
+        vm.assertEq(feeRate, 0);
+        vm.assertEq(interestRatePerSecond.unwrap(), 0);
+        vm.assertEq(originalDebt, 0);
+        vm.assertEq(totalDebt, 0);
+        vm.assertEq(defaultThreshold, 0);
     }
 
     function testFail_RequesterMustBeHuman() public {
         vm.prank(address(1336));
-        raila.createRequest(100, UD60x18.wrap(100), 100, "");
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
     }
 
     function test_RequesterMustBeHuman() public {
         vm.prank(address(1337));
-        raila.createRequest(100, UD60x18.wrap(100), 100, "");
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
     }
 
     function testFail_MaxOneRequestPerHuman() public {
         vm.prank(address(1337));
-        raila.createRequest(100, UD60x18.wrap(100), 100, "");
-        raila.createRequest(100, UD60x18.wrap(100), 100, "");
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+    }
+
+    function testFail_StartingOwedAmountMustBeUnderDefaultsAt() public {
+        vm.prank(address(1337));
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1 ether, "");
+    }
+
+    function testFail_StartingOwedAmountMustBeUnderDefaultsAtInterestIncluded() public {
+        vm.prank(address(1337));
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1.01 ether, "");
+    }
+
+    // just checking close cases that might break 
+    function testFails_StartingOwedAmountBarelyDefaultsAtInterestIncluded() public {
+        vm.prank(address(1337));
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1.06683 ether, "");
+    }
+
+    // just checking a close case that might break 
+    function test_StartingOwedAmountBarelyNotDefaultsAtInterestIncluded() public {
+        vm.prank(address(1337));
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1.06684 ether, "");
+    }
+
+    // intended: NOOPs, interfaces/subgraph will hide useless logs
+    function test_RequesterCanRequestZero() public {
+        vm.prank(address(1337));
+        raila.createRequest(0, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1 ether, "");
+    }
+
+    // although if the defaultsAt is also zero it won't allow it
+    function testFail_RequestOfZeroFailsWithZeroDefaultsAt() public {
+        vm.prank(address(1337));
+        raila.createRequest(0, UD60x18.wrap(INTEREST_RATE_30_YEAR), 0, "");
+    }
+
+    // intended: the user can condemn themselves to infinite debt
+    function test_RequesterInsaneInterest() public {
+        vm.prank(address(1337));
+        uint256 INTEREST_RATE_OVER_50000_YEAR = 1000000200000000000;
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_OVER_50000_YEAR), 20 ether, "");
     }
 }
