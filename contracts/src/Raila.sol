@@ -35,11 +35,11 @@ contract Raila is IERC721, IERC721Metadata {
         // 5th slot
         uint256 totalDebt;
         // 6th slot
-        uint256 defaultsAt;
+        uint256 defaultThreshold;
     }
 
     event RequestCreation(
-        bytes20 indexed debtor, uint256 indexed requestId, uint256 loanAmount, string requestMetadata
+        bytes20 indexed debtor, uint256 indexed requestId, string requestMetadata
     );
     event RequestCanceled(bytes20 indexed debtor, uint256 indexed requestId);
     // there is no need for "LoanAccepted", you can filter for erc721 Transfer(0, ?, requestId) to see mint.
@@ -87,13 +87,17 @@ contract Raila is IERC721, IERC721Metadata {
     function createRequest(
         uint256 loanAmount,
         UD60x18 interestRatePerSecond,
-        uint256 defaultsAt,
+        uint256 defaultThreshold,
         string calldata requestMetadata
     ) external returns (uint256) {
         bytes20 humanityId = PROOF_OF_HUMANITY.humanityOf(msg.sender);
         require(humanityId != bytes20(0));
         uint256 requestId = borrowerToRequestId[humanityId];
         require(requestId == 0);
+        uint256 startingDebt = interestHelper(
+            loanAmount, interestRatePerSecond, MINIMUM_INTEREST_PERIOD
+        );
+        require(startingDebt < defaultThreshold);
         // create request
         borrowerToRequestId[humanityId] = requestId;
         lastRequestId++;
@@ -103,8 +107,8 @@ contract Raila is IERC721, IERC721Metadata {
         // request.status is already RequestStatus.Open;
         request.interestRatePerSecond = interestRatePerSecond;
         request.originalDebt = loanAmount;
-        request.defaultsAt = defaultsAt;
-        emit RequestCreation(humanityId, lastRequestId, loanAmount, requestMetadata);
+        request.defaultThreshold = defaultThreshold;
+        emit RequestCreation(humanityId, lastRequestId, requestMetadata);
         return lastRequestId;
     }
 
