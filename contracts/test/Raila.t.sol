@@ -85,7 +85,7 @@ contract CreateRequest is Test {
         vm.assertEq(creditor, address(0));
         vm.assertEq(fundedAt, 0); // wasn't funded yet
         vm.assertEq(lastUpdatedAt, 0); 
-        vm.assertEq(feeRate, raila.feeRate());
+        vm.assertEq(feeRate, 0); // fee rate is not set here, but on acceptRequest
         vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR);
         vm.assertEq(originalDebt, 1 ether);
         vm.assertEq(totalDebt, 0);

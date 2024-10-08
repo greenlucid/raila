@@ -107,7 +107,6 @@ contract Raila is IERC721, IERC721Metadata {
         request.interestRatePerSecond = interestRatePerSecond;
         request.originalDebt = loanAmount;
         request.defaultThreshold = defaultThreshold;
-        request.feeRate = feeRate;
         borrowerToRequestId[humanityId] = lastRequestId;
         emit RequestCreation(humanityId, lastRequestId, requestMetadata);
         return lastRequestId;
