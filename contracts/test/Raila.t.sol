@@ -11,7 +11,8 @@ import {UD60x18, powu} from "@prb-math/src/UD60x18.sol";
 
 contract MockPoH is IProofOfHumanity {
     function humanityOf(address owner) public pure returns (bytes20) {
-        if (owner == address(1337)) return bytes20(address(69));
+        if (owner == address(1337)) return bytes20(address(69)); // alice
+        if (owner == address(666)) return bytes20(address(42)); // eve
         else return bytes20(address(0));
     }
 }
@@ -28,6 +29,7 @@ contract Constructor is Test {
     Raila raila;
 
     function setUp() public {
+        vm.prank(address(777));
         poh = new MockPoH();
         usd = new PolloCoin(1e18);
     }
@@ -70,7 +72,9 @@ contract CreateRequest is Test {
     function test_RequestReads() public {
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        // must mutate requestCounter, add reference borrower => request, and request data
         assertEq(raila.lastRequestId(), 1);
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1);
 
         (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
         uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
@@ -163,5 +167,81 @@ contract CreateRequest is Test {
         vm.prank(address(1337));
         uint256 INTEREST_RATE_OVER_50000_YEAR = 1000000200000000000;
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_OVER_50000_YEAR), 20 ether, "");
+    }
+}
+
+contract CancelRequest is Test {
+    IProofOfHumanity poh;
+    ERC20 usd;
+    Raila raila;
+
+    event RequestCanceled(uint256 indexed requestId);
+
+    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
+
+    function setUp() public {
+        poh = new MockPoH();
+        vm.prank(address(777));
+        usd = new PolloCoin(100 ether);
+        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(1337));
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        // request will be at 1
+    }
+
+    function test_AliceCancelsHerRequest() public {
+        vm.prank(address(1337));
+        raila.cancelRequest();
+    }
+
+    function test_CancelRequestLogs() public {
+        vm.prank(address(1337));
+        vm.expectEmit(true, false, false, true);
+        emit RequestCanceled(1);
+        raila.cancelRequest();
+    }
+
+    function test_CancelRequestReads() public {
+        vm.prank(address(1337));
+        raila.cancelRequest();
+
+        assertEq(raila.lastRequestId(), 1); // had incremented
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // ref must be erased
+
+        // cancelling a request must delete all struct data
+        (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
+        uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
+        uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
+        vm.assertEq(debtor, bytes20(address(0)));
+        vm.assertEq(createdAtBlock, 0);
+        vm.assertEq(uint8(status), uint8(0));
+        vm.assertEq(creditor, address(0));
+        vm.assertEq(fundedAt, 0);
+        vm.assertEq(lastUpdatedAt, 0); 
+        vm.assertEq(feeRate, 0);
+        vm.assertEq(interestRatePerSecond.unwrap(), 0);
+        vm.assertEq(originalDebt, 0);
+        vm.assertEq(totalDebt, 0);
+        vm.assertEq(defaultThreshold, 0);
+    }
+
+    function testFail_NonHumanCannotCancelRequest() public {
+        vm.prank(address(1336));
+        raila.cancelRequest();
+    }
+
+    function testFail_EveCannotCancelRequest() public {
+        vm.prank(address(666));
+        raila.cancelRequest();
+    }
+
+    function testFail_CannotCancelRequestIfLoanBegan() public {
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(1);
+
+        vm.prank(address(1337));
+        raila.cancelRequest();
     }
 }
