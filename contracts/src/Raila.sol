@@ -41,7 +41,7 @@ contract Raila is IERC721, IERC721Metadata {
     event RequestCreation(
         bytes20 indexed debtor, uint256 indexed requestId, string requestMetadata
     );
-    event RequestCanceled(bytes20 indexed debtor, uint256 indexed requestId);
+    event RequestCanceled(uint256 indexed requestId);
     // there is no need for "LoanAccepted", you can filter for erc721 Transfer(0, ?, requestId) to see mint.
     event LoanRepayment(uint256 indexed requestId, uint256 repaidAmount, uint256 pendingDebt);
     // there is no need for "LoanClosed", you can filter for erc721 Transfer(?, 0, requestId) to see burn.
@@ -99,7 +99,6 @@ contract Raila is IERC721, IERC721Metadata {
         );
         require(startingDebt < defaultThreshold);
         // create request
-        borrowerToRequestId[humanityId] = requestId;
         lastRequestId++; // the first request will have id 1
         Request storage request = requests[lastRequestId];
         request.debtor = humanityId;
@@ -109,28 +108,28 @@ contract Raila is IERC721, IERC721Metadata {
         request.originalDebt = loanAmount;
         request.defaultThreshold = defaultThreshold;
         request.feeRate = feeRate;
+        borrowerToRequestId[humanityId] = lastRequestId;
         emit RequestCreation(humanityId, lastRequestId, requestMetadata);
         return lastRequestId;
     }
 
-    function closeRequest() external {
+    function cancelRequest() external {
         bytes20 humanityId = PROOF_OF_HUMANITY.humanityOf(msg.sender);
-        require(humanityId != bytes20(0));
         uint256 requestId = borrowerToRequestId[humanityId];
         require(requestId != 0);
         Request storage request = requests[lastRequestId];
         require(request.status == RequestStatus.Open);
         // close request
         borrowerToRequestId[humanityId] = 0;
-        request.status = RequestStatus.Closed;
-        emit RequestCanceled(humanityId, requestId);
+        delete requests[requestId];
+        emit RequestCanceled(requestId);
     }
 
     function acceptRequest(uint256 requestId) external {
         Request storage request = requests[requestId];
         require(USD.transferFrom(msg.sender, address(this), request.originalDebt));
         // loan request was accepted.
-        request.status = RequestStatus.Open;
+        request.status = RequestStatus.Loan;
         request.creditor = msg.sender;
         request.fundedAt = uint40(block.timestamp);
         request.feeRate = feeRate;
