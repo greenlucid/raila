@@ -1,24 +1,21 @@
-## Foundry
+## Raila Contracts
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
-
-Foundry consists of:
-
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
-
-## Documentation
+Raila uses Foundry for Contract deployment, dependency management, and testing.
 
 https://book.getfoundry.sh/
 
-## Usage
+## Installation
 
-### Build
+[Download and Install Foundry](https://book.getfoundry.sh/getting-started/installation)
+
+Note there are different instructions for Windows.
+
+### Download Dependencies
+
+Soldeer is used for automatic handling and downloading of dependencies.
 
 ```shell
-$ forge build
+$ forge soldeer install
 ```
 
 ### Test
@@ -27,40 +24,10 @@ $ forge build
 $ forge test
 ```
 
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
 ### Deploy
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
+> todo, create a Raila.s.sol script under the `scripts/` folder. Should be deployed in Gnosis Chain, using PoHv2 as dependency.
 
 ```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
+$ forge script script/Raila.s.sol:Raila --rpc-url <your_rpc_url> --private-key <your_private_key>
 ```
