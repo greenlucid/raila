@@ -15,6 +15,11 @@ contract MockPoH is IProofOfHumanity {
         if (owner == address(666)) return bytes20(address(42)); // eve
         else return bytes20(address(0));
     }
+    function boundTo(bytes20 _humanityId) public pure returns (address) {
+        if (_humanityId == bytes20(address(69))) return address(1337); // alice
+        if (_humanityId == bytes20(address(42))) return address(666); // eve
+        else return address(0);
+    }
 }
 
 contract PolloCoin is ERC20 {
@@ -139,7 +144,7 @@ contract CreateRequest is Test {
     }
 
     // just checking close cases that might break 
-    function testFails_StartingOwedAmountBarelyDefaultsAtInterestIncluded() public {
+    function testFail_StartingOwedAmountBarelyDefaultsAtInterestIncluded() public {
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1.06683 ether, "");
     }

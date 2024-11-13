@@ -126,8 +126,10 @@ contract Raila is IERC721, IERC721Metadata {
 
     function acceptRequest(uint256 requestId) external {
         Request storage request = requests[requestId];
-        require(USD.transferFrom(msg.sender, address(this), request.originalDebt));
-        // loan request was accepted.
+        address boundDebtor = PROOF_OF_HUMANITY.boundTo(request.debtor);
+        require(boundDebtor != address(0)); // ensure still human
+        require(USD.transferFrom(msg.sender, boundDebtor, request.originalDebt));
+        // loan request was accepted, and into the debtor
         request.status = RequestStatus.Loan;
         request.creditor = msg.sender;
         request.fundedAt = uint40(block.timestamp);
