@@ -14,8 +14,7 @@ import {Base64} from "@openzeppelin-contracts/utils/Base64.sol";
 contract Raila is IERC721, IERC721Metadata {
     enum RequestStatus {
         Open,
-        Loan,
-        Closed
+        Loan
     }
 
     struct Request {
@@ -70,6 +69,10 @@ contract Raila is IERC721, IERC721Metadata {
     mapping(address => mapping(address => bool)) public isApprovedForAll; //for erc721 isApprovedForAll
     uint256 public lastRequestId;
 
+    // todo raila governor, changes parameters... etc
+    // todo governor can forgive debt?
+    // todo parameter for max interest rate
+
     constructor(
         address _treasury,
         uint256 _minimumInterestPeriod,
@@ -115,7 +118,7 @@ contract Raila is IERC721, IERC721Metadata {
     function cancelRequest() external {
         bytes20 humanityId = PROOF_OF_HUMANITY.humanityOf(msg.sender);
         uint256 requestId = borrowerToRequestId[humanityId];
-        require(requestId != 0);
+        require(requestId != 0); // has nothing to cancel
         Request storage request = requests[lastRequestId];
         require(request.status == RequestStatus.Open);
         // close request
@@ -126,6 +129,7 @@ contract Raila is IERC721, IERC721Metadata {
 
     function acceptRequest(uint256 requestId) external {
         Request storage request = requests[requestId];
+        require(request.status == RequestStatus.Open);
         address boundDebtor = PROOF_OF_HUMANITY.boundTo(request.debtor);
         require(boundDebtor != address(0)); // ensure still human
         require(USD.transferFrom(msg.sender, boundDebtor, request.originalDebt));

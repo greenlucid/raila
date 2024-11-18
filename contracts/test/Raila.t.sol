@@ -7,6 +7,8 @@ import "forge-std/console.sol";
 import {IProofOfHumanity} from "../src/IProofOfHumanity.sol";
 import {Raila} from "../src/Raila.sol";
 import {ERC20} from "@openzeppelin-contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
+import {IERC721} from "@openzeppelin-contracts/interfaces/IERC721.sol";
 import {UD60x18, powu} from "@prb-math/src/UD60x18.sol";
 
 contract MockPoH is IProofOfHumanity {
@@ -55,10 +57,6 @@ contract CreateRequest is Test {
     ERC20 usd;
     Raila raila;
 
-    event RequestCreation(
-        bytes20 indexed debtor, uint256 indexed requestId, string requestMetadata
-    );
-
     uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200; 
 
     function setUp() public {
@@ -70,7 +68,7 @@ contract CreateRequest is Test {
     function test_RequestLogs() public {
         vm.prank(address(1337));
         vm.expectEmit(true, true, false, true);
-        emit RequestCreation(bytes20(address(69)), 1, "");
+        emit Raila.RequestCreation(bytes20(address(69)), 1, "");
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
     }
 
@@ -180,8 +178,6 @@ contract CancelRequest is Test {
     ERC20 usd;
     Raila raila;
 
-    event RequestCanceled(uint256 indexed requestId);
-
     uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
 
     function setUp() public {
@@ -202,7 +198,7 @@ contract CancelRequest is Test {
     function test_CancelRequestLogs() public {
         vm.prank(address(1337));
         vm.expectEmit(true, false, false, true);
-        emit RequestCanceled(1);
+        emit Raila.RequestCanceled(1);
         raila.cancelRequest();
     }
 
@@ -248,5 +244,120 @@ contract CancelRequest is Test {
 
         vm.prank(address(1337));
         raila.cancelRequest();
+    }
+}
+
+contract AcceptRequest is Test {
+    IProofOfHumanity poh;
+    ERC20 usd;
+    Raila raila;
+
+    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
+
+    function setUp() public {
+        poh = new MockPoH();
+        vm.prank(address(777));
+        usd = new PolloCoin(100 ether);
+        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(1337));
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        // request will be at 1
+    }
+
+    function test_CreditorCanAcceptRequest() public {
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(1);
+    }
+
+    function test_AcceptRequestLogs() public {
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(777), address(1337), 1 ether);
+        vm.expectEmit(true, true, true, false, address(raila));
+        emit IERC721.Transfer(address(0), address(777), 1); // loan nft mint
+        vm.prank(address(777));
+        raila.acceptRequest(1);
+    }
+
+    function test_AcceptRequestReads() public {
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(1);
+
+        (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
+        uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
+        uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
+        vm.assertEq(debtor, bytes20(address(69)));
+        vm.assertEq(createdAtBlock, block.number);
+        vm.assertEq(uint8(status), uint8(1));
+        vm.assertEq(creditor, address(777));
+        vm.assertEq(fundedAt, block.timestamp);
+        vm.assertEq(lastUpdatedAt, block.timestamp + 86400 * 90); 
+        vm.assertEq(feeRate, 500);
+        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR);
+        vm.assertEq(originalDebt, 1 ether);
+        vm.assertEq(totalDebt, 1066830984986877400); // precompounded for minimum period
+        vm.assertEq(defaultThreshold, 2 ether);
+
+        vm.assertEq(raila.balanceOf(address(777)), 1);
+
+        // check new balances
+        vm.assertEq(usd.balanceOf(address(777)), 99 ether); // creditor started 100 but lost 1
+        vm.assertEq(usd.allowance(address(777), address(raila)), 0 ether); // spent allowance
+        vm.assertEq(usd.balanceOf(address(1337)), 1 ether); // alice got 1
+    }
+
+    function testFail_AcceptRequestOnEmptyRequest() public {
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(2);
+    }
+
+    function testFail_AcceptRequestOnRequestZero() public {
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(0);
+    }
+
+    function testFail_AcceptRequestOnCanceledRequest() public {
+        vm.prank(address(1337));
+        raila.cancelRequest();
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(1);
+    }
+
+    function testFail_AcceptRequestOnActiveLoan() public {
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(1);
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(1);
+    }
+
+    function testFail_AcceptRequestWithoutEnoughFunds() public {
+        vm.prank(address(777));
+        usd.transfer(address(778), 0.9 ether);
+        vm.prank(address(778));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(778));
+        raila.acceptRequest(1);
+    }
+
+    function testFail_AcceptRequestWithoutEnoughAllowance() public {
+        vm.prank(address(777));
+        usd.approve(address(raila), 0.9 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(1);
     }
 }
