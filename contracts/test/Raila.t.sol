@@ -361,3 +361,456 @@ contract AcceptRequest is Test {
         raila.acceptRequest(1);
     }
 }
+
+contract ForgiveDebt is Test {
+    IProofOfHumanity poh;
+    ERC20 usd;
+    Raila raila;
+
+    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
+
+    function setUp() public {
+        poh = new MockPoH();
+        vm.prank(address(777));
+        usd = new PolloCoin(100 ether);
+        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(1337));
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(1);
+    }
+
+    function test_CreditorCanForgiveDebt() public {
+        vm.prank(address(777));
+        raila.forgiveDebt(1);
+    }
+
+    function test_ForgiveDebtLogs() public {
+        vm.expectEmit(true, false, false, true, address(raila));
+        emit Raila.LoanForgiven(1, 1066830984986877400);
+        vm.expectEmit(true, true, true, false, address(raila));
+        emit IERC721.Transfer(address(777), address(0), 1); // loan nft burn
+
+        vm.prank(address(777));
+        raila.forgiveDebt(1);
+    }
+
+    function test_ForgiveDebtReads() public {
+        vm.prank(address(777));
+        raila.forgiveDebt(1);
+
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // ref must be erased
+        // forgiving a request must delete all struct data
+        (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
+        uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
+        uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
+        vm.assertEq(debtor, bytes20(address(0)));
+        vm.assertEq(createdAtBlock, 0);
+        vm.assertEq(uint8(status), uint8(0));
+        vm.assertEq(creditor, address(0));
+        vm.assertEq(fundedAt, 0);
+        vm.assertEq(lastUpdatedAt, 0); 
+        vm.assertEq(feeRate, 0);
+        vm.assertEq(interestRatePerSecond.unwrap(), 0);
+        vm.assertEq(originalDebt, 0);
+        vm.assertEq(totalDebt, 0);
+        vm.assertEq(defaultThreshold, 0);
+    }
+
+    function testFail_NonCreditorCannotForgive() public {
+        vm.prank(address(666));
+        raila.forgiveDebt(1);
+    }
+    function testFail_ForgiveTwice() public {
+        vm.prank(address(777));
+        raila.forgiveDebt(1);
+        raila.forgiveDebt(1);
+    }
+
+    function test_ForgiveDebtLongTime() public {
+        // when time passes, debt is updated
+        vm.warp(block.timestamp + 1000 days);
+        vm.expectEmit(true, false, false, true, address(raila));
+        emit Raila.LoanForgiven(1, 2051982084767566658);
+        vm.expectEmit(true, true, true, false, address(raila));
+        emit IERC721.Transfer(address(777), address(0), 1); // loan nft burn
+
+        vm.prank(address(777));
+        raila.forgiveDebt(1);
+    }
+}
+
+contract PayLoan is Test {
+    IProofOfHumanity poh;
+    ERC20 usd;
+    Raila raila;
+
+    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
+
+    function setUp() public {
+        poh = new MockPoH();
+        vm.prank(address(777));
+        usd = new PolloCoin(100 ether);
+        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(1337));
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        vm.prank(address(777));
+        usd.approve(address(raila), 1 ether);
+        vm.prank(address(777));
+        raila.acceptRequest(1);
+    }
+
+    function test_AliceFullyPaysImmediately() public {
+        // alice gets all money required and pays instantly with an excess of 0.01 ether
+        // she pays original, plus min interest, and gets the excess back.
+        vm.prank(address(777));
+        usd.transfer(address(1337), 76830984986877400);
+        vm.prank(address(1337));
+        usd.approve(address(raila), 1076830984986877400);
+        // alice usd => raila
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(1337), address(raila), 1076830984986877400);
+        // payment announcement
+        vm.expectEmit(true, false, false, true, address(raila));
+        emit Raila.LoanRepayment(1, 1066830984986877400, 0);
+        // total to creditor (original + most of interest)
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(777), 1063489435737533530);
+        // fees to raila treasury (feeRate * interest)
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(1000), 3341549249343870);
+        // excess back to usd sender
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(1337), 10000000000000000);
+        // full payment destroys the loan nft
+        vm.expectEmit(true, true, true, false, address(raila));
+        emit IERC721.Transfer(address(777), address(0), 1);
+
+        vm.prank(address(1337));
+        raila.payLoan(1, 1076830984986877400);
+
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // ref must be erased
+        // fully paying a loan must delete all struct data
+        (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
+        uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
+        uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
+        vm.assertEq(debtor, bytes20(address(0)));
+        vm.assertEq(createdAtBlock, 0);
+        vm.assertEq(uint8(status), uint8(0));
+        vm.assertEq(creditor, address(0));
+        vm.assertEq(fundedAt, 0);
+        vm.assertEq(lastUpdatedAt, 0); 
+        vm.assertEq(feeRate, 0);
+        vm.assertEq(interestRatePerSecond.unwrap(), 0);
+        vm.assertEq(originalDebt, 0);
+        vm.assertEq(totalDebt, 0);
+        vm.assertEq(defaultThreshold, 0);
+    }
+    // will refrain from checking storage reads to verify loan is destroyed from this point onwards.
+    function test_AliceFullyPaysAtMinimumPeriod() public {
+        // everything should happen exactly as the test above, despite the time.
+        vm.warp(block.timestamp + 86400 * 90);
+        vm.prank(address(777));
+        usd.transfer(address(1337), 76830984986877400);
+        vm.prank(address(1337));
+        usd.approve(address(raila), 1076830984986877400);
+        // alice usd => raila
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(1337), address(raila), 1076830984986877400);
+        // payment announcement
+        vm.expectEmit(true, false, false, true, address(raila));
+        emit Raila.LoanRepayment(1, 1066830984986877400, 0);
+        // total to creditor (original + most of interest)
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(777), 1063489435737533530);
+        // fees to raila treasury (feeRate * interest)
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(1000), 3341549249343870);
+        // excess back to usd sender
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(1337), 10000000000000000);
+        // full payment destroys the loan nft
+        vm.expectEmit(true, true, true, false, address(raila));
+        emit IERC721.Transfer(address(777), address(0), 1);
+
+        vm.prank(address(1337));
+        raila.payLoan(1, 1076830984986877400);
+    }
+
+    function test_AliceFullyPaysOneDayAfterMinPeriod() public {
+        // numbers are slightly bigger to account for 1 day of extra interest
+        vm.warp(block.timestamp + 86400 * 91);
+        vm.prank(address(777));
+        usd.transfer(address(1337), 76830984986877400);
+        vm.prank(address(1337));
+        usd.approve(address(raila), 1076830984986877400);
+        // alice usd => raila
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(1337), address(raila), 1076830984986877400);
+        // payment announcement
+        vm.expectEmit(true, false, false, true, address(raila));
+        emit Raila.LoanRepayment(1, 1067598105382081556, 0);
+        // total to creditor (original + most of interest)
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(777), 1064218200112977479);
+        // fees to raila treasury (feeRate * interest)
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(1000), 3379905269104077);
+        // excess back to usd sender
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(1337), 9232879604795844);
+        // full payment destroys the loan nft
+        vm.expectEmit(true, true, true, false, address(raila));
+        emit IERC721.Transfer(address(777), address(0), 1);
+
+        vm.prank(address(1337));
+        raila.payLoan(1, 1076830984986877400);
+    }
+
+    function test_AliceOnlyPaysOriginalDebt() public {
+        vm.prank(address(1337));
+        usd.approve(address(raila), 1000000000000000000);
+        // alice usd => raila
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(1337), address(raila), 1000000000000000000);
+        // payment announcement. there's debt remaining
+        vm.expectEmit(true, false, false, true, address(raila));
+        emit Raila.LoanRepayment(1, 1000000000000000000, 66830984986877400);
+        // total to creditor (original), no interest debt paid.
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(777), 1000000000000000000);
+        // no fees to raila treasury
+        // no excess back to usd sender
+        // loan was not extinguished
+        vm.prank(address(1337));
+        raila.payLoan(1, 1000000000000000000);
+        // loan was not extinguished, so ref must remain
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1);
+        // loan remains, but original debt has been paid
+        (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
+        uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
+        uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
+        vm.assertEq(debtor, bytes20(address(69)));
+        vm.assertEq(createdAtBlock, block.number);
+        vm.assertEq(uint8(status), uint8(1));
+        vm.assertEq(creditor, address(777));
+        vm.assertEq(fundedAt, block.timestamp);
+        // payment before the min interest period, so lastUpdatedAt is min period + fundedAt
+        vm.assertEq(lastUpdatedAt, block.timestamp + 86400 * 90); 
+        vm.assertEq(feeRate, 500);
+        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR);
+        vm.assertEq(originalDebt, 0); // fully paid
+        vm.assertEq(totalDebt, 66830984986877400);
+        vm.assertEq(defaultThreshold, 2 ether);
+    }
+
+    function test_AlicePaysOriginalDebtPartially() public {
+        vm.prank(address(1337));
+        usd.approve(address(raila), 0.01 ether);
+        // alice usd => raila
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(1337), address(raila), 0.01 ether);
+        // payment announcement. there's debt remaining
+        vm.expectEmit(true, false, false, true, address(raila));
+        emit Raila.LoanRepayment(1, 0.01 ether, 1056830984986877400);
+        // total to creditor (original), no interest debt paid.
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(777), 0.01 ether);
+        // no fees to raila treasury
+        // no excess back to usd sender
+        // loan was not extinguished
+        vm.prank(address(1337));
+        raila.payLoan(1, 0.01 ether);
+        // loan was not extinguished, so ref must remain
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1);
+        // loan remains, only some original debt has been paid
+        (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
+        uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
+        uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
+        vm.assertEq(debtor, bytes20(address(69)));
+        vm.assertEq(createdAtBlock, block.number);
+        vm.assertEq(uint8(status), uint8(1));
+        vm.assertEq(creditor, address(777));
+        vm.assertEq(fundedAt, block.timestamp);
+        // payment before the min interest period, so lastUpdatedAt is min period + fundedAt
+        vm.assertEq(lastUpdatedAt, block.timestamp + 86400 * 90); 
+        vm.assertEq(feeRate, 500);
+        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR);
+        vm.assertEq(originalDebt, 0.99 ether); // fully paid
+        vm.assertEq(totalDebt, 1056830984986877400);
+        vm.assertEq(defaultThreshold, 2 ether);
+    }
+
+    function test_OriginalDebtDoesNotGrow() public {
+        vm.warp(block.timestamp + 1000 days); // few years pass, but original debt is stuck.
+        vm.prank(address(1337));
+        usd.approve(address(raila), 0.01 ether);
+        vm.prank(address(1337));
+        raila.payLoan(1, 0.01 ether);
+        (,,,,,,,,uint256 originalDebt,,) = raila.requests(1);
+        vm.assertEq(originalDebt, 0.99 ether);
+    }
+
+    function test_AlicePaysOriginalAndSomeInterest() public {
+        vm.prank(address(777));
+        usd.transfer(address(1337), 0.01 ether);
+        vm.prank(address(1337));
+        usd.approve(address(raila), 1.01 ether);
+        vm.prank(address(1337));
+        // payment announcement
+        vm.expectEmit(true, false, false, true, address(raila));
+        emit Raila.LoanRepayment(1, 1.01 ether, 56830984986877400);
+        // total to creditor (original + most of interest)
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(777), 1009500000000000000);
+        // fees to raila treasury (feeRate * interest)
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(1000), 500000000000000);
+        raila.payLoan(1, 1.01 ether);
+
+        (,,,,,,,,uint256 originalDebt, uint256 totalDebt,) = raila.requests(1);
+        vm.assertEq(originalDebt, 0 ether);
+        vm.assertEq(totalDebt, 56830984986877400);
+    }
+
+    function test_PayingDebtInBatches() public {
+        // realistic amortization of debt in a few batches separated by time
+        vm.prank(address(1337));
+        usd.approve(address(raila), 100 ether);
+        // batch 1
+        uint256 originTime = block.timestamp;
+        vm.warp(block.timestamp + 100 days);
+        vm.prank(address(777));
+        usd.transfer(address(1337), 0.5 ether);
+        vm.prank(address(1337));
+        raila.payLoan(1, 0.5 ether);
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1); // loan still alive
+        (,,,,uint256 fundedAt1,uint256 lastUpdated1,,,uint256 originalDebt1,uint256 totalDebt1,) = raila.requests(1);
+        vm.assertEq(fundedAt1, originTime);
+        vm.assertEq(lastUpdated1, originTime + 100 days);
+        vm.assertLt(fundedAt1, lastUpdated1); // invariant: while loan, funded < lastUpdated
+        vm.assertEq(originalDebt1, 0.5 ether);
+        vm.assertEq(totalDebt1, 574527059006372707);
+        vm.assertLt(originalDebt1, totalDebt1); // invariant: while loan, ogd < totd
+        // batch 2
+        vm.warp(block.timestamp + 100 days);
+        vm.prank(address(777));
+        usd.transfer(address(1337), 0.5 ether);
+        vm.prank(address(1337));
+        raila.payLoan(1, 0.5 ether);
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1); // loan still alive
+        (,,,,uint256 fundedAt2,uint256 lastUpdated2,,,uint256 originalDebt2,uint256 totalDebt2,) = raila.requests(1);
+        vm.assertEq(fundedAt2, originTime);
+        vm.assertEq(lastUpdated2, originTime + 200 days);
+        vm.assertEq(originalDebt2, 0);
+        vm.assertEq(totalDebt2, 117344871033698420);
+        // batch 3
+        vm.warp(block.timestamp + 100 days);
+        vm.prank(address(777));
+        usd.transfer(address(1337), 0.5 ether);
+        // lets make sure she gets the excess
+        // alice usd => raila
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(1337), address(raila), 0.5 ether);
+        // payment announcement
+        vm.expectEmit(true, false, false, true, address(raila));
+        emit Raila.LoanRepayment(1, 126090239161322057, 0);
+        // total to creditor
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(777), 119785727203255955);
+        // fees to raila treasury (feeRate * interest)
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(1000), 6304511958066102);
+        // excess back to usd sender
+        vm.expectEmit(true, true, false, true, address(usd));
+        emit IERC20.Transfer(address(raila), address(1337), 373909760838677943);
+        // full payment destroys the loan nft
+        vm.expectEmit(true, true, true, false, address(raila));
+        emit IERC721.Transfer(address(777), address(0), 1);
+
+        vm.prank(address(1337));
+        raila.payLoan(1, 0.5 ether);
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // loan now dead
+        (,,,,,,,,uint256 originalDebt3,uint256 totalDebt3,) = raila.requests(1);
+        vm.assertEq(originalDebt3, 0);
+        vm.assertEq(totalDebt3, 0);
+        // treasury should've obtained some money, ~6 mETH
+        vm.assertLe(0.006 ether, usd.balanceOf(address(1000)));
+    }
+
+    function test_ThirdPartyCanPayLoan() public {
+        vm.prank(address(777));
+        usd.transfer(address(333), 2 ether);
+        vm.prank(address(333));
+        usd.approve(address(raila), 2 ether);
+        vm.prank(address(333));
+        raila.payLoan(1, 2 ether);
+        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // loan now dead
+    }
+
+    function testFail_NoPayWithoutApproval() public {
+        vm.prank(address(777));
+        usd.transfer(address(333), 2 ether);
+        vm.prank(address(333));
+        raila.payLoan(1, 2 ether);
+    }
+
+    function testFail_NoPayLoanDoesNotExist() public {
+        vm.prank(address(777));
+        usd.transfer(address(333), 2 ether);
+        vm.prank(address(333));
+        usd.approve(address(raila), 2 ether);
+        vm.prank(address(333));
+        raila.payLoan(2, 2 ether);
+    }
+
+    function testFail_NoPayLoanCompleted() public {
+        vm.prank(address(777));
+        usd.transfer(address(333), 2 ether);
+        vm.prank(address(333));
+        usd.approve(address(raila), 2 ether);
+        vm.prank(address(333));
+        raila.payLoan(1, 2 ether);
+        // loan is now paid, so this payment must fail
+        vm.prank(address(333));
+        raila.payLoan(1, 0.1 ether);
+    }
+
+    function test_CanPayWithZero() public {
+        vm.prank(address(333));
+        raila.payLoan(1, 0);
+    }
+
+    function test_PayingWithZeroCanUpdateValues() public {
+        // paying 0 at time 0 is a noop
+        vm.prank(address(333));
+        raila.payLoan(1, 0);
+        uint256 originTime = block.timestamp;
+        (,,,,uint256 fundedAt0,uint256 lastUpdated0,,,uint256 originalDebt0,uint256 totalDebt0,) = raila.requests(1);
+        vm.assertEq(fundedAt0, originTime);
+        vm.assertEq(lastUpdated0, originTime + 86400 * 90);
+        vm.assertEq(originalDebt0, 1 ether);
+        vm.assertEq(totalDebt0, 1066830984986877400);
+        // paying 0 at time min_period is a noop
+        vm.warp(block.timestamp + 86400 * 90);
+        (,,,,uint256 fundedAt1,uint256 lastUpdated1,,,uint256 originalDebt1,uint256 totalDebt1,) = raila.requests(1);
+        vm.assertEq(fundedAt1, originTime);
+        vm.assertEq(lastUpdated1, originTime + 86400 * 90);
+        vm.assertEq(originalDebt1, 1 ether);
+        vm.assertEq(totalDebt1, 1066830984986877400);
+        // paying 0 at time after min_period mutates lastUpdated and the interest
+        vm.warp(block.timestamp + 1000 days);
+        vm.prank(address(333));
+        raila.payLoan(1, 0);
+        (,,,,uint256 fundedAt2,uint256 lastUpdated2,,,uint256 originalDebt2,uint256 totalDebt2,) = raila.requests(1);
+        vm.assertEq(fundedAt2, originTime);
+        vm.assertEq(lastUpdated2, originTime + 86400 * 90 + 1000 days);
+        vm.assertEq(originalDebt2, 1 ether);
+        vm.assertEq(totalDebt2, 2189118068668009296); // has increased.
+    }
+}
+
+// misc checks:
+// 2 loans with equal ogd and distinct interestRates grow at different speeds

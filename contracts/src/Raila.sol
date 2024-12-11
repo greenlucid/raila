@@ -9,6 +9,7 @@ import {IERC721} from "@openzeppelin-contracts/interfaces/IERC721.sol";
 import {IERC721Metadata} from "@openzeppelin-contracts/token/ERC721/extensions/IERC721Metadata.sol";
 import {IERC721Receiver} from "@openzeppelin-contracts/interfaces/IERC721Receiver.sol";
 import {Base64} from "@openzeppelin-contracts/utils/Base64.sol";
+import "forge-std/console.sol";
 
 /// @title Raila
 contract Raila is IERC721, IERC721Metadata {
@@ -43,6 +44,7 @@ contract Raila is IERC721, IERC721Metadata {
     event RequestCanceled(uint256 indexed requestId);
     // there is no need for "LoanAccepted", you can filter for erc721 Transfer(0, ?, requestId) to see mint.
     event LoanRepayment(uint256 indexed requestId, uint256 repaidAmount, uint256 pendingDebt);
+    event LoanForgiven(uint256 indexed requestId, uint256 pendingDebt);
     // there is no need for "LoanClosed", you can filter for erc721 Transfer(?, 0, requestId) to see burn.
 
     error ERC721InvalidReceiver(address receiver);
@@ -148,7 +150,7 @@ contract Raila is IERC721, IERC721Metadata {
         emit Transfer(address(0), msg.sender, requestId);
     }
 
-    function payLoan(uint256 amount, uint256 requestId) external {
+    function payLoan(uint256 requestId, uint256 amount) external {
         Request storage request = requests[requestId];
         require(request.status == RequestStatus.Loan);
         require(USD.transferFrom(msg.sender, address(this), amount));
@@ -163,34 +165,47 @@ contract Raila is IERC721, IERC721Metadata {
         // from here, there are three payment steps to consider: original, total, reimburse.
         // a buffer will be used to store the remainder between steps.
         uint256 amountBuffer = amount;
+        uint256 toCreditor;
+        uint256 toTreasury;
         if (request.originalDebt > 0) {
+            console.log("theres og debt");
+            console.log("amb", amountBuffer, "ogd", request.originalDebt);
             // if there is original debt pending, pay towards it.
             uint256 deductionToOriginalDebt = amountBuffer > request.originalDebt ? request.originalDebt : amountBuffer;
-
             request.originalDebt = request.originalDebt - deductionToOriginalDebt;
             request.totalDebt = request.totalDebt - deductionToOriginalDebt;
             // creditors recieve original debt without fees, while it lasts.
-            USD.transfer(request.creditor, deductionToOriginalDebt);
+            toCreditor = deductionToOriginalDebt;
             amountBuffer = amountBuffer - deductionToOriginalDebt;
         }
+        console.log("handled og debt, pending tot:", request.totalDebt, "buffer", amountBuffer);
 
         if (amountBuffer > 0) {
+            console.log("theres tot debt");
+            console.log("amb", amountBuffer, "totd", request.totalDebt);
             uint256 deductionToTotalDebt = amountBuffer > request.totalDebt ? request.totalDebt : amountBuffer;
 
             request.totalDebt = request.totalDebt - deductionToTotalDebt;
+            console.log("final tot", request.totalDebt);
             // regular debt directs some of the money as fees to treasury
-            uint256 feeAmount = deductionToTotalDebt * feeRate / 10_000;
-            USD.transfer(RAILA_TREASURY, feeAmount);
-            uint256 creditorAmount = request.totalDebt - feeAmount;
-            USD.transfer(request.creditor, creditorAmount);
+            toTreasury = deductionToTotalDebt * feeRate / 10_000;
+            console.log("fee", toTreasury);
+            toCreditor += deductionToTotalDebt - toTreasury;
+            console.log("creditorAmount", deductionToTotalDebt - toTreasury, "toCreditor", toCreditor);
             amountBuffer = amountBuffer - deductionToTotalDebt;
         }
 
         // now, amountBuffer is whatever is left after covering both debt types.
         // consider it may be be greater than zero for this event, and for refunding the sender.
         emit LoanRepayment(requestId, amount - amountBuffer, request.totalDebt);
-        if (amountBuffer > 0) USD.transfer(msg.sender, amountBuffer);
 
+        console.log("FINAL bookkeeping; totalPaid", amount - amountBuffer, "excess", amountBuffer);
+        console.log("toCreditor", toCreditor, "toTreasury", toTreasury);
+        // after accounting for changes, we finally pay
+        if (toCreditor > 0) USD.transfer(request.creditor, toCreditor);
+        if (toTreasury > 0) USD.transfer(RAILA_TREASURY, toTreasury);
+        if (amountBuffer > 0) USD.transfer(msg.sender, amountBuffer);
+        
         // if total debt becomes zero, close it and emit events.
         if (request.totalDebt == 0) {
             _burn(requestId);
@@ -198,12 +213,24 @@ contract Raila is IERC721, IERC721Metadata {
     }
 
     function forgiveDebt(uint256 requestId) external {
+        // todo this is equivalent to transferring the creditor status to debtor
+        // so migrate as internal function of Transfer => debtor?
         Request storage request = requests[requestId];
         require(request.creditor == msg.sender);
+
+        // first update the debt, so that we can track how much was forgiven
+        // if minimum period has not passed yet, do not update it
+        if (block.timestamp > request.lastUpdatedAt) {
+            request.totalDebt = interestHelper(
+                request.totalDebt, request.interestRatePerSecond, block.timestamp - uint256(request.lastUpdatedAt)
+            );
+            request.lastUpdatedAt = uint40(block.timestamp);
+        }
+        emit LoanForgiven(requestId, request.totalDebt); // todo log human and creditor too?
         _burn(requestId);
     }
 
-    function interestHelper(uint256 amount, UD60x18 interest, uint256 time) internal pure returns (uint256) {
+    function interestHelper(uint256 amount, UD60x18 interest, uint256 time) public pure returns (uint256) {
         uint256 compoundedInterest = powu(interest, time).unwrap();
         uint256 compoundedAmount = amount * compoundedInterest / ONE;
         return compoundedAmount;
@@ -224,6 +251,9 @@ contract Raila is IERC721, IERC721Metadata {
 
     function _transfer(address sender, address receiver, uint256 tokenId) internal {
         Request storage request = requests[tokenId];
+        // todo receiver cannot be address(0)
+        // otherwise griefers can mess up with accounting of closed loans
+        // and i think its forbidden by erc721
         balanceOf[sender]--;
         balanceOf[receiver]++;
         request.creditor = receiver;
