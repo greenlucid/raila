@@ -56,13 +56,14 @@ contract Raila is IERC721, IERC721Metadata {
 
     // at the very least, to be paid in full, loans will pay x days of interest.
     // that way creditor is guaranteed to be paid, if loan is eventually paid, some interest.
-    uint256 public immutable MINIMUM_INTEREST_PERIOD;
+    uint256 public MINIMUM_INTEREST_PERIOD;
 
     // basis points. fees are only paid after the initial loan is covered.
     // fees are sent to raila treasury (maintenance, bounties, server costs...)
-    uint16 public feeRate;
+    uint16 public FEE_RATE;
 
-    address public immutable RAILA_TREASURY;
+    address public TREASURY;
+    address public GOVERNOR;
 
     mapping(bytes20 => uint256) public borrowerToRequestId;
     mapping(uint256 => Request) public requests;
@@ -76,17 +77,19 @@ contract Raila is IERC721, IERC721Metadata {
     // todo parameter for max interest rate
 
     constructor(
+        address _governor,
         address _treasury,
         uint256 _minimumInterestPeriod,
         IERC20 _usdToken,
         IProofOfHumanity _poh,
         uint16 _feeRate
     ) {
-        RAILA_TREASURY = _treasury;
+        GOVERNOR = _governor;
+        TREASURY = _treasury;
         MINIMUM_INTEREST_PERIOD = _minimumInterestPeriod; // should be 90 days?
         USD = IERC20(_usdToken);
         PROOF_OF_HUMANITY = IProofOfHumanity(_poh);
-        feeRate = _feeRate;
+        FEE_RATE = _feeRate;
     }
 
     function createRequest(
@@ -112,6 +115,7 @@ contract Raila is IERC721, IERC721Metadata {
         request.interestRatePerSecond = interestRatePerSecond;
         request.originalDebt = loanAmount;
         request.defaultThreshold = defaultThreshold;
+        // feeRate is set when created
         borrowerToRequestId[humanityId] = lastRequestId;
         emit RequestCreation(humanityId, lastRequestId, requestMetadata);
         return lastRequestId;
@@ -139,7 +143,7 @@ contract Raila is IERC721, IERC721Metadata {
         request.status = RequestStatus.Loan;
         request.creditor = msg.sender;
         request.fundedAt = uint40(block.timestamp);
-        request.feeRate = feeRate;
+        request.feeRate = FEE_RATE;
         // to ensure a minimum amount of interest is paid,
         // we initially advance the lastUpdatedAt timestamp by the minimum period.
         // and we set the totalDebt to be originalDebt + those interests.
@@ -188,7 +192,7 @@ contract Raila is IERC721, IERC721Metadata {
             request.totalDebt = request.totalDebt - deductionToTotalDebt;
             console.log("final tot", request.totalDebt);
             // regular debt directs some of the money as fees to treasury
-            toTreasury = deductionToTotalDebt * feeRate / 10_000;
+            toTreasury = deductionToTotalDebt * request.feeRate / 10_000;
             console.log("fee", toTreasury);
             toCreditor += deductionToTotalDebt - toTreasury;
             console.log("creditorAmount", deductionToTotalDebt - toTreasury, "toCreditor", toCreditor);
@@ -203,7 +207,7 @@ contract Raila is IERC721, IERC721Metadata {
         console.log("toCreditor", toCreditor, "toTreasury", toTreasury);
         // after accounting for changes, we finally pay
         if (toCreditor > 0) USD.transfer(request.creditor, toCreditor);
-        if (toTreasury > 0) USD.transfer(RAILA_TREASURY, toTreasury);
+        if (toTreasury > 0) USD.transfer(TREASURY, toTreasury);
         if (amountBuffer > 0) USD.transfer(msg.sender, amountBuffer);
         
         // if total debt becomes zero, close it and emit events.
@@ -216,7 +220,10 @@ contract Raila is IERC721, IERC721Metadata {
         // todo this is equivalent to transferring the creditor status to debtor
         // so migrate as internal function of Transfer => debtor?
         Request storage request = requests[requestId];
-        require(request.creditor == msg.sender);
+        require(
+            request.status == RequestStatus.Loan
+            && (request.creditor == msg.sender || GOVERNOR == msg.sender)
+        );
 
         // first update the debt, so that we can track how much was forgiven
         // if minimum period has not passed yet, do not update it
@@ -234,6 +241,28 @@ contract Raila is IERC721, IERC721Metadata {
         uint256 compoundedInterest = powu(interest, time).unwrap();
         uint256 compoundedAmount = amount * compoundedInterest / ONE;
         return compoundedAmount;
+    }
+
+    // governance stuff
+
+    function changeGovernor(address _governor) external {
+        require(msg.sender == GOVERNOR);
+        GOVERNOR = _governor;
+    }
+
+    function changeTreasury(address _treasury) public {
+        require(msg.sender == GOVERNOR);
+        TREASURY = _treasury;
+    }
+
+    function changeFeeRate(uint16 _feeRate) public {
+        require(msg.sender == GOVERNOR);
+        FEE_RATE = _feeRate;
+    }
+
+    function changeMinimumInterestPeriod(uint256 _period) public {
+        require(msg.sender == GOVERNOR);
+        MINIMUM_INTEREST_PERIOD = _period;
     }
 
     // erc721 stuff

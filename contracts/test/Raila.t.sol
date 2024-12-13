@@ -42,14 +42,65 @@ contract Constructor is Test {
     }
 
     function test_ConstructorSetsVariables() public {
-        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
-        assertEq(raila.RAILA_TREASURY(), address(1000));
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        assertEq(raila.GOVERNOR(), address(1000));
+        assertEq(raila.TREASURY(), address(1000));
         assertEq(raila.MINIMUM_INTEREST_PERIOD(), 86400 * 90);
         assertEq(address(raila.USD()), address(usd));
         assertEq(address(raila.PROOF_OF_HUMANITY()), address(poh));
-        assertEq(raila.feeRate(), 500);
+        assertEq(raila.FEE_RATE(), 500);
     }
-    // todo test some core functionality here too, like changing fee base rate, governor etc
+
+    function test_ChangeGovernor() public {
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(1000));
+        raila.changeGovernor(address(1001));
+        assertEq(raila.GOVERNOR(), address(1001));
+    }
+
+    function testFail_ChangeGovernorIntruder() public {
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(666));
+        raila.changeGovernor(address(1001));
+    }
+
+    function test_ChangeTreasury() public {
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(1000));
+        raila.changeTreasury(address(1001));
+        assertEq(raila.TREASURY(), address(1001));
+    }
+
+    function testFail_ChangeTreasuryIntruder() public {
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(666));
+        raila.changeTreasury(address(1001));
+    }
+
+    function test_ChangeFeeRate() public {
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(1000));
+        raila.changeFeeRate(100);
+        assertEq(raila.FEE_RATE(), 100);
+    }
+
+    function testFail_ChangeFeeRateIntruder() public {
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(666));
+        raila.changeFeeRate(100);
+    }
+
+    function test_ChangeMinInterestPeriod() public {
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        vm.prank(address(1000));
+        raila.changeMinimumInterestPeriod(60 days);
+        assertEq(raila.MINIMUM_INTEREST_PERIOD(), 60 days);
+    }
+
+    function testFail_ChangeMinInterestPeriodIntruder() public {
+        vm.prank(address(666));
+        raila.changeMinimumInterestPeriod(60 days);
+    }
 }
 
 contract CreateRequest is Test {
@@ -62,7 +113,7 @@ contract CreateRequest is Test {
     function setUp() public {
         poh = new MockPoH();
         usd = new PolloCoin(1e18);
-        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
     }
 
     function test_RequestLogs() public {
@@ -184,7 +235,7 @@ contract CancelRequest is Test {
         poh = new MockPoH();
         vm.prank(address(777));
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
         // request will be at 1
@@ -258,7 +309,7 @@ contract AcceptRequest is Test {
         poh = new MockPoH();
         vm.prank(address(777));
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
         // request will be at 1
@@ -373,7 +424,7 @@ contract ForgiveDebt is Test {
         poh = new MockPoH();
         vm.prank(address(777));
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
         vm.prank(address(777));
@@ -423,10 +474,27 @@ contract ForgiveDebt is Test {
         vm.prank(address(666));
         raila.forgiveDebt(1);
     }
+
+    function test_GovernorCanForgive() public {
+        vm.prank(address(1000));
+        raila.forgiveDebt(1);
+    }
+
     function testFail_ForgiveTwice() public {
         vm.prank(address(777));
         raila.forgiveDebt(1);
         raila.forgiveDebt(1);
+    }
+
+    function testFail_NotEvenGovernorCanForgiveTwice() public {
+        vm.prank(address(1000));
+        raila.forgiveDebt(1);
+        raila.forgiveDebt(1);
+    }
+
+    function testFail_NoForgiveBadIndex() public {
+        vm.prank(address(1000));
+        raila.forgiveDebt(2);
     }
 
     function test_ForgiveDebtLongTime() public {
@@ -453,7 +521,7 @@ contract PayLoan is Test {
         poh = new MockPoH();
         vm.prank(address(777));
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
         vm.prank(address(777));
@@ -814,3 +882,4 @@ contract PayLoan is Test {
 
 // misc checks:
 // 2 loans with equal ogd and distinct interestRates grow at different speeds
+// changing the contract's feeRate doesnt modify the (already filed) request feeRate
