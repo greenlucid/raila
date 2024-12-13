@@ -72,8 +72,6 @@ contract Raila is IERC721, IERC721Metadata {
     mapping(address => mapping(address => bool)) public isApprovedForAll; //for erc721 isApprovedForAll
     uint256 public lastRequestId;
 
-    // todo raila governor, changes parameters... etc
-    // todo governor can forgive debt?
     // todo parameter for max interest rate
 
     constructor(
@@ -279,10 +277,8 @@ contract Raila is IERC721, IERC721Metadata {
     }
 
     function _transfer(address sender, address receiver, uint256 tokenId) internal {
+        require(receiver != address(0));
         Request storage request = requests[tokenId];
-        // todo receiver cannot be address(0)
-        // otherwise griefers can mess up with accounting of closed loans
-        // and i think its forbidden by erc721
         balanceOf[sender]--;
         balanceOf[receiver]++;
         request.creditor = receiver;
