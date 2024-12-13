@@ -26,7 +26,12 @@ $ forge test
 
 ### Deploy
 
-Fill values on .env-example.
+```shell
+$ cp .env.example .env
+```
+
+Fill the values on `.env`, and then run:
+
 ```shell 
 $ forge script --chain gnosis scripts/Deploy.s.sol:Deploy --rpc-url $RPC_URL --broadcast --verify -vvvv
 ```
