@@ -26,8 +26,7 @@ $ forge test
 
 ### Deploy
 
-> todo, create a Raila.s.sol script under the `scripts/` folder. Should be deployed in Gnosis Chain, using PoHv2 as dependency.
-
-```shell
-$ forge script script/Raila.s.sol:Raila --rpc-url <your_rpc_url> --private-key <your_private_key>
+Fill values on .env-example.
+```shell 
+$ forge script --chain gnosis scripts/Deploy.s.sol:Deploy --rpc-url $RPC_URL --broadcast --verify -vvvv
 ```
