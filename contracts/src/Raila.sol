@@ -58,6 +58,9 @@ contract Raila is IERC721, IERC721Metadata {
     // that way creditor is guaranteed to be paid, if loan is eventually paid, some interest.
     uint256 public MINIMUM_INTEREST_PERIOD;
 
+    // protect borrowers from eternal debt with a sensible max rate
+    UD60x18 public MAXIMUM_INTEREST_RATE;
+
     // basis points. fees are only paid after the initial loan is covered.
     // fees are sent to raila treasury (maintenance, bounties, server costs...)
     uint16 public FEE_RATE;
@@ -72,19 +75,19 @@ contract Raila is IERC721, IERC721Metadata {
     mapping(address => mapping(address => bool)) public isApprovedForAll; //for erc721 isApprovedForAll
     uint256 public lastRequestId;
 
-    // todo parameter for max interest rate
-
     constructor(
         address _governor,
         address _treasury,
         uint256 _minimumInterestPeriod,
+        UD60x18 _maxInterestRate,
         IERC20 _usdToken,
         IProofOfHumanity _poh,
         uint16 _feeRate
     ) {
         GOVERNOR = _governor;
         TREASURY = _treasury;
-        MINIMUM_INTEREST_PERIOD = _minimumInterestPeriod; // should be 90 days?
+        MINIMUM_INTEREST_PERIOD = _minimumInterestPeriod;
+        MAXIMUM_INTEREST_RATE = _maxInterestRate;
         USD = IERC20(_usdToken);
         PROOF_OF_HUMANITY = IProofOfHumanity(_poh);
         FEE_RATE = _feeRate;
@@ -104,6 +107,10 @@ contract Raila is IERC721, IERC721Metadata {
             loanAmount, interestRatePerSecond, MINIMUM_INTEREST_PERIOD
         );
         require(startingDebt < defaultThreshold);
+        require(
+            UD60x18.wrap(1 ether) < interestRatePerSecond
+            && interestRatePerSecond < MAXIMUM_INTEREST_RATE
+        );
         // create request
         lastRequestId++; // the first request will have id 1
         Request storage request = requests[lastRequestId];
@@ -261,6 +268,11 @@ contract Raila is IERC721, IERC721Metadata {
     function changeMinimumInterestPeriod(uint256 _period) public {
         require(msg.sender == GOVERNOR);
         MINIMUM_INTEREST_PERIOD = _period;
+    }
+
+    function changeMaximumInterestRate(UD60x18 _interest) public {
+        require(msg.sender == GOVERNOR);
+        MAXIMUM_INTEREST_RATE = _interest;
     }
 
     // erc721 stuff
