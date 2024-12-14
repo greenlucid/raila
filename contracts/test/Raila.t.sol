@@ -34,6 +34,7 @@ contract Constructor is Test {
     IProofOfHumanity poh;
     ERC20 usd;
     Raila raila;
+    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
 
     function setUp() public {
         vm.prank(address(777));
@@ -42,7 +43,7 @@ contract Constructor is Test {
     }
 
     function test_ConstructorSetsVariables() public {
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
         assertEq(raila.GOVERNOR(), address(1000));
         assertEq(raila.TREASURY(), address(1000));
         assertEq(raila.MINIMUM_INTEREST_PERIOD(), 86400 * 90);
@@ -50,48 +51,56 @@ contract Constructor is Test {
         assertEq(address(raila.PROOF_OF_HUMANITY()), address(poh));
         assertEq(raila.FEE_RATE(), 500);
     }
+}
+
+contract GovernorChanges is Test {
+    IProofOfHumanity poh;
+    ERC20 usd;
+    Raila raila;
+    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
+    UD60x18 constant INTEREST_RATE_30_YEAR = UD60x18.wrap(1000000008319516200); 
+
+    function setUp() public {
+        vm.prank(address(777));
+        poh = new MockPoH();
+        usd = new PolloCoin(1e18);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
+    }
 
     function test_ChangeGovernor() public {
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(1000));
         raila.changeGovernor(address(1001));
         assertEq(raila.GOVERNOR(), address(1001));
     }
 
     function testFail_ChangeGovernorIntruder() public {
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(666));
         raila.changeGovernor(address(1001));
     }
 
     function test_ChangeTreasury() public {
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(1000));
         raila.changeTreasury(address(1001));
         assertEq(raila.TREASURY(), address(1001));
     }
 
     function testFail_ChangeTreasuryIntruder() public {
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(666));
         raila.changeTreasury(address(1001));
     }
 
     function test_ChangeFeeRate() public {
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(1000));
         raila.changeFeeRate(100);
         assertEq(raila.FEE_RATE(), 100);
     }
 
     function testFail_ChangeFeeRateIntruder() public {
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(666));
         raila.changeFeeRate(100);
     }
 
     function test_ChangeMinInterestPeriod() public {
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
         vm.prank(address(1000));
         raila.changeMinimumInterestPeriod(60 days);
         assertEq(raila.MINIMUM_INTEREST_PERIOD(), 60 days);
@@ -101,6 +110,20 @@ contract Constructor is Test {
         vm.prank(address(666));
         raila.changeMinimumInterestPeriod(60 days);
     }
+
+    function test_ChangeMaxInterestRate() public {
+        vm.prank(address(1000));
+        raila.changeMaximumInterestRate(INTEREST_RATE_30_YEAR);
+        assertEq(
+            UD60x18.unwrap(raila.MAXIMUM_INTEREST_RATE()),
+            UD60x18.unwrap(INTEREST_RATE_30_YEAR)
+        );
+    }
+
+    function testFail_ChangeMaxInterestRateIntruder() public {
+        vm.prank(address(666));
+        raila.changeMaximumInterestRate(INTEREST_RATE_30_YEAR);
+    }
 }
 
 contract CreateRequest is Test {
@@ -108,12 +131,13 @@ contract CreateRequest is Test {
     ERC20 usd;
     Raila raila;
 
+    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
     uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200; 
 
     function setUp() public {
         poh = new MockPoH();
         usd = new PolloCoin(1e18);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
     }
 
     function test_RequestLogs() public {
@@ -216,11 +240,25 @@ contract CreateRequest is Test {
         raila.createRequest(0, UD60x18.wrap(INTEREST_RATE_30_YEAR), 0, "");
     }
 
-    // intended: the user can condemn themselves to infinite debt
-    function test_RequesterInsaneInterest() public {
+    // the user cannot condemn themselves to infinite debt
+    function testFail_RequesterInsaneInterest() public {
         vm.prank(address(1337));
-        uint256 INTEREST_RATE_OVER_50000_YEAR = 1000000200000000000;
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_OVER_50000_YEAR), 20 ether, "");
+        uint256 INTEREST_RATE_OVER_500000_YEAR = 1000002000000000000;
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_OVER_500000_YEAR), 20000 ether, "");
+    }
+
+    // the user cannot request a negative interest debt
+    function testFail_RequesterNegativeInterest() public {
+        vm.prank(address(1337));
+        uint256 INTEREST_RATE_NEGATIVE = 900000000000000000;
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_NEGATIVE), 2 ether, "");
+    }
+
+    // the user cannot request a 0% interest debt
+    function testFail_RequesterZeroInterest() public {
+        vm.prank(address(1337));
+        uint256 INTEREST_RATE_ZERO = 1000000000000000000;
+        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_ZERO), 2 ether, "");
     }
 }
 
@@ -229,13 +267,14 @@ contract CancelRequest is Test {
     ERC20 usd;
     Raila raila;
 
+    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
     uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
 
     function setUp() public {
         poh = new MockPoH();
         vm.prank(address(777));
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
         // request will be at 1
@@ -303,13 +342,14 @@ contract AcceptRequest is Test {
     ERC20 usd;
     Raila raila;
 
+    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
     uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
 
     function setUp() public {
         poh = new MockPoH();
         vm.prank(address(777));
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
         // request will be at 1
@@ -418,13 +458,14 @@ contract ForgiveDebt is Test {
     ERC20 usd;
     Raila raila;
 
+    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
     uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
 
     function setUp() public {
         poh = new MockPoH();
         vm.prank(address(777));
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
         vm.prank(address(777));
@@ -515,13 +556,14 @@ contract PayLoan is Test {
     ERC20 usd;
     Raila raila;
 
+    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
     uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
 
     function setUp() public {
         poh = new MockPoH();
         vm.prank(address(777));
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, usd, poh, 500);
+        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
         vm.prank(address(1337));
         raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
         vm.prank(address(777));
@@ -883,3 +925,4 @@ contract PayLoan is Test {
 // misc checks:
 // 2 loans with equal ogd and distinct interestRates grow at different speeds
 // changing the contract's feeRate doesnt modify the (already filed) request feeRate
+// cant transfer to address 0
