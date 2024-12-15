@@ -47,8 +47,6 @@ contract Raila is IERC721, IERC721Metadata {
     event LoanForgiven(uint256 indexed requestId, uint256 pendingDebt);
     // there is no need for "LoanClosed", you can filter for erc721 Transfer(?, 0, requestId) to see burn.
 
-    error ERC721InvalidReceiver(address receiver);
-
     uint256 internal constant ONE = 1000000000000000000;
 
     IERC20 public immutable USD;
@@ -75,6 +73,11 @@ contract Raila is IERC721, IERC721Metadata {
     mapping(address => mapping(address => bool)) public isApprovedForAll; //for erc721 isApprovedForAll
     uint256 public lastRequestId;
 
+    modifier onlyGovernor() {
+        if (msg.sender != GOVERNOR) revert NotGovernor();
+        _;
+    }
+
     constructor(
         address _governor,
         address _treasury,
@@ -100,17 +103,17 @@ contract Raila is IERC721, IERC721Metadata {
         string calldata requestMetadata
     ) external returns (uint256) {
         bytes20 humanityId = PROOF_OF_HUMANITY.humanityOf(msg.sender);
-        require(humanityId != bytes20(0));
+        if (humanityId == bytes20(0)) revert NotHuman();
         uint256 requestId = borrowerToRequestId[humanityId];
-        require(requestId == 0);
+        if (requestId != 0) revert RequestAlreadyExists();
+        if (
+            !(UD60x18.wrap(1 ether) < interestRatePerSecond
+            && interestRatePerSecond < MAXIMUM_INTEREST_RATE)
+        ) revert RequestBadInterestRate();
         uint256 startingDebt = interestHelper(
             loanAmount, interestRatePerSecond, MINIMUM_INTEREST_PERIOD
         );
-        require(startingDebt < defaultThreshold);
-        require(
-            UD60x18.wrap(1 ether) < interestRatePerSecond
-            && interestRatePerSecond < MAXIMUM_INTEREST_RATE
-        );
+        if (startingDebt >= defaultThreshold) revert RequestWouldDefault();
         // create request
         lastRequestId++; // the first request will have id 1
         Request storage request = requests[lastRequestId];
@@ -129,9 +132,9 @@ contract Raila is IERC721, IERC721Metadata {
     function cancelRequest() external {
         bytes20 humanityId = PROOF_OF_HUMANITY.humanityOf(msg.sender);
         uint256 requestId = borrowerToRequestId[humanityId];
-        require(requestId != 0); // has nothing to cancel
+        if (requestId == 0) revert NotRequest();
         Request storage request = requests[lastRequestId];
-        require(request.status == RequestStatus.Open);
+        if (request.status == RequestStatus.Loan) revert LoanActive();
         // close request
         borrowerToRequestId[humanityId] = 0;
         delete requests[requestId];
@@ -140,10 +143,10 @@ contract Raila is IERC721, IERC721Metadata {
 
     function acceptRequest(uint256 requestId) external {
         Request storage request = requests[requestId];
-        require(request.status == RequestStatus.Open);
+        if (request.status == RequestStatus.Loan) revert LoanActive();
         address boundDebtor = PROOF_OF_HUMANITY.boundTo(request.debtor);
-        require(boundDebtor != address(0)); // ensure still human
-        require(USD.transferFrom(msg.sender, boundDebtor, request.originalDebt));
+        if (boundDebtor == address(0)) revert NotHuman();
+        if (!USD.transferFrom(msg.sender, boundDebtor, request.originalDebt)) revert NotPaid();
         // loan request was accepted, and into the debtor
         request.status = RequestStatus.Loan;
         request.creditor = msg.sender;
@@ -161,8 +164,8 @@ contract Raila is IERC721, IERC721Metadata {
 
     function payLoan(uint256 requestId, uint256 amount) external {
         Request storage request = requests[requestId];
-        require(request.status == RequestStatus.Loan);
-        require(USD.transferFrom(msg.sender, address(this), amount));
+        if (request.status == RequestStatus.Open) revert LoanNotActive();
+        if (!USD.transferFrom(msg.sender, address(this), amount)) revert NotPaid();
         // first update the debt
         // if minimum period has not passed yet, do not update it
         if (block.timestamp > request.lastUpdatedAt) {
@@ -223,10 +226,8 @@ contract Raila is IERC721, IERC721Metadata {
 
     function forgiveDebt(uint256 requestId) external {
         Request storage request = requests[requestId];
-        require(
-            request.status == RequestStatus.Loan
-            && (request.creditor == msg.sender || GOVERNOR == msg.sender)
-        );
+        if (request.status == RequestStatus.Open) revert LoanNotActive();
+        if (request.creditor != msg.sender && GOVERNOR != msg.sender) revert NotCreditor();
 
         // first update the debt, so that we can track how much was forgiven
         // if minimum period has not passed yet, do not update it
@@ -236,7 +237,7 @@ contract Raila is IERC721, IERC721Metadata {
             );
             request.lastUpdatedAt = uint40(block.timestamp);
         }
-        emit LoanForgiven(requestId, request.totalDebt); // todo log human and creditor too?
+        emit LoanForgiven(requestId, request.totalDebt);
         _burn(requestId);
     }
 
@@ -248,28 +249,23 @@ contract Raila is IERC721, IERC721Metadata {
 
     // governance stuff
 
-    function changeGovernor(address _governor) external {
-        require(msg.sender == GOVERNOR);
+    function changeGovernor(address _governor) external onlyGovernor {
         GOVERNOR = _governor;
     }
 
-    function changeTreasury(address _treasury) public {
-        require(msg.sender == GOVERNOR);
+    function changeTreasury(address _treasury) external onlyGovernor {
         TREASURY = _treasury;
     }
 
-    function changeFeeRate(uint16 _feeRate) public {
-        require(msg.sender == GOVERNOR);
+    function changeFeeRate(uint16 _feeRate) external onlyGovernor {
         FEE_RATE = _feeRate;
     }
 
-    function changeMinimumInterestPeriod(uint256 _period) public {
-        require(msg.sender == GOVERNOR);
+    function changeMinimumInterestPeriod(uint256 _period) external onlyGovernor {
         MINIMUM_INTEREST_PERIOD = _period;
     }
 
-    function changeMaximumInterestRate(UD60x18 _interest) public {
-        require(msg.sender == GOVERNOR);
+    function changeMaximumInterestRate(UD60x18 _interest) external onlyGovernor {
         MAXIMUM_INTEREST_RATE = _interest;
     }
 
@@ -287,7 +283,7 @@ contract Raila is IERC721, IERC721Metadata {
     }
 
     function _transfer(address sender, address receiver, uint256 tokenId) internal {
-        require(receiver != address(0));
+        if (receiver == address(0)) revert ERC721InvalidReceiver(address(0));
         Request storage request = requests[tokenId];
         balanceOf[sender]--;
         balanceOf[receiver]++;
@@ -297,7 +293,7 @@ contract Raila is IERC721, IERC721Metadata {
 
     function approve(address to, uint256 tokenId) external {
         Request storage request = requests[tokenId];
-        require(msg.sender == request.creditor);
+        if (msg.sender != request.creditor) revert NotCreditor();
         getApproved[tokenId] = to;
         emit Approval(msg.sender, to, tokenId);
     }
@@ -343,7 +339,7 @@ contract Raila is IERC721, IERC721Metadata {
                 // do nothing; already approved for all.
             }
             else {
-                require(getApproved[tokenId] == msg.sender);
+                if (getApproved[tokenId] != msg.sender) revert NotApproved();
                 // consume the getApproved
                 getApproved[tokenId] = address(0);
             }
@@ -369,4 +365,19 @@ contract Raila is IERC721, IERC721Metadata {
         // 0x80ac58cd == erc721 ; 0x5b5e139f == erc721metadata
         return interfaceId == 0x80ac58cd || interfaceId == 0x5b5e139f;
     }
+
+    // errors
+
+    error NotHuman();
+    error RequestAlreadyExists();
+    error RequestBadInterestRate();
+    error RequestWouldDefault();
+    error NotRequest();
+    error LoanActive();
+    error LoanNotActive();
+    error NotPaid();
+    error NotCreditor();
+    error NotGovernor();
+    error NotApproved();
+    error ERC721InvalidReceiver(address receiver);
 }

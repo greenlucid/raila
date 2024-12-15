@@ -57,9 +57,9 @@ contract Constructor is Test {
     }
 
     function test_ConstructorSetsVariables() public {
-        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
-        assertEq(raila.GOVERNOR(), address(1000));
-        assertEq(raila.TREASURY(), address(1000));
+        raila = new Raila(address(4), address(5), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
+        assertEq(raila.GOVERNOR(), address(4));
+        assertEq(raila.TREASURY(), address(5));
         assertEq(raila.MINIMUM_INTEREST_PERIOD(), 86400 * 90);
         assertEq(address(raila.USD()), address(usd));
         assertEq(address(raila.PROOF_OF_HUMANITY()), address(poh));
@@ -85,7 +85,8 @@ contract GovernorChanges is RailaTest {
         assertEq(raila.GOVERNOR(), address(1001));
     }
 
-    function testFail_ChangeGovernorIntruder() public {
+    function test_ChangeGovernorIntruder() public {
+        vm.expectRevert(Raila.NotGovernor.selector);
         vm.prank(eve);
         raila.changeGovernor(address(1001));
     }
@@ -96,7 +97,8 @@ contract GovernorChanges is RailaTest {
         assertEq(raila.TREASURY(), address(1001));
     }
 
-    function testFail_ChangeTreasuryIntruder() public {
+    function test_ChangeTreasuryIntruder() public {
+        vm.expectRevert(Raila.NotGovernor.selector);
         vm.prank(eve);
         raila.changeTreasury(address(1001));
     }
@@ -107,7 +109,8 @@ contract GovernorChanges is RailaTest {
         assertEq(raila.FEE_RATE(), 100);
     }
 
-    function testFail_ChangeFeeRateIntruder() public {
+    function test_ChangeFeeRateIntruder() public {
+        vm.expectRevert(Raila.NotGovernor.selector);
         vm.prank(eve);
         raila.changeFeeRate(100);
     }
@@ -118,7 +121,8 @@ contract GovernorChanges is RailaTest {
         assertEq(raila.MINIMUM_INTEREST_PERIOD(), 60 days);
     }
 
-    function testFail_ChangeMinInterestPeriodIntruder() public {
+    function test_ChangeMinInterestPeriodIntruder() public {
+        vm.expectRevert(Raila.NotGovernor.selector);
         vm.prank(eve);
         raila.changeMinimumInterestPeriod(60 days);
     }
@@ -132,7 +136,8 @@ contract GovernorChanges is RailaTest {
         );
     }
 
-    function testFail_ChangeMaxInterestRateIntruder() public {
+    function test_ChangeMaxInterestRateIntruder() public {
+        vm.expectRevert(Raila.NotGovernor.selector);
         vm.prank(eve);
         raila.changeMaximumInterestRate(INTEREST_RATE_30_YEAR);
     }
@@ -200,30 +205,35 @@ contract CreateRequest is RailaTest {
         vm.assertEq(defaultThreshold, 0);
     }
 
-    function testFail_RequesterMustBeHuman() public {
+    function test_RequesterMustBeHuman() public {
+        vm.expectRevert(Raila.NotHuman.selector);
         vm.prank(bob);
         raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
     }
 
-    function testFail_MaxOneRequestPerHuman() public {
+    function test_MaxOneRequestPerHuman() public {
         vm.prank(alice);
         raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
+        vm.expectRevert(Raila.RequestAlreadyExists.selector);
         vm.prank(alice);
         raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
     }
 
-    function testFail_StartingOwedAmountMustBeUnderDefaultsAt() public {
+    function test_StartingOwedAmountMustBeUnderDefaultsAt() public {
+        vm.expectRevert(Raila.RequestWouldDefault.selector);
         vm.prank(alice);
         raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 1 ether, "");
     }
 
-    function testFail_StartingOwedAmountMustBeUnderDefaultsAtInterestIncluded() public {
+    function test_StartingOwedAmountMustBeUnderDefaultsAtInterestIncluded() public {
+        vm.expectRevert(Raila.RequestWouldDefault.selector);
         vm.prank(alice);
         raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 1.01 ether, "");
     }
 
     // just checking close cases that might break 
-    function testFail_StartingOwedAmountBarelyDefaultsAtInterestIncluded() public {
+    function test_StartingOwedAmountBarelyDefaultsAtInterestIncluded() public {
+        vm.expectRevert(Raila.RequestWouldDefault.selector);
         vm.prank(alice);
         raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 1.06683 ether, "");
     }
@@ -241,27 +251,31 @@ contract CreateRequest is RailaTest {
     }
 
     // although if the defaultsAt is also zero it won't allow it
-    function testFail_RequestOfZeroFailsWithZeroDefaultsAt() public {
+    function test_RequestOfZeroFailsWithZeroDefaultsAt() public {
+        vm.expectRevert(Raila.RequestWouldDefault.selector);
         vm.prank(alice);
         raila.createRequest(0, INTEREST_RATE_30_YEAR, 0, "");
     }
 
     // the user cannot condemn themselves to infinite debt
-    function testFail_RequesterInsaneInterest() public {
+    function test_RequesterInsaneInterest() public {
+        vm.expectRevert(Raila.RequestBadInterestRate.selector);
         vm.prank(alice);
         UD60x18 INTEREST_RATE_OVER_500000_YEAR = UD60x18.wrap(1000002000000000000);
         raila.createRequest(1 ether, INTEREST_RATE_OVER_500000_YEAR, 20000 ether, "");
     }
 
     // the user cannot request a negative interest debt
-    function testFail_RequesterNegativeInterest() public {
+    function test_RequesterNegativeInterest() public {
+        vm.expectRevert(Raila.RequestBadInterestRate.selector);
         vm.prank(alice);
         UD60x18 INTEREST_RATE_NEGATIVE = UD60x18.wrap(900000000000000000);
         raila.createRequest(1 ether, INTEREST_RATE_NEGATIVE, 2 ether, "");
     }
 
     // the user cannot request a 0% interest debt
-    function testFail_RequesterZeroInterest() public {
+    function test_RequesterZeroInterest() public {
+        vm.expectRevert(Raila.RequestBadInterestRate.selector);
         vm.prank(alice);
         UD60x18 INTEREST_RATE_ZERO = UD60x18.wrap(1000000000000000000);
         raila.createRequest(1 ether, INTEREST_RATE_ZERO, 2 ether, "");
@@ -319,23 +333,26 @@ contract CancelRequest is RailaTest {
         vm.assertEq(defaultThreshold, 0);
     }
 
-    function testFail_NonHumanCannotCancelRequest() public {
+    function test_NonHumanCannotCancelRequest() public {
+        vm.expectRevert(Raila.NotRequest.selector);
         vm.prank(bob);
         raila.cancelRequest();
     }
 
-    function testFail_EveCannotCancelRequest() public {
+    function test_EveCannotCancelRequest() public {
         // because she doesn't have an open request
+        vm.expectRevert(Raila.NotRequest.selector);
         vm.prank(eve);
         raila.cancelRequest();
     }
 
-    function testFail_CannotCancelRequestIfLoanBegan() public {
+    function test_CannotCancelRequestIfLoanBegan() public {
         vm.prank(bob);
         usd.approve(address(raila), 1 ether);
         vm.prank(bob);
         raila.acceptRequest(1);
 
+        vm.expectRevert(Raila.LoanActive.selector);
         vm.prank(alice);
         raila.cancelRequest();
     }
@@ -404,52 +421,58 @@ contract AcceptRequest is RailaTest {
         vm.assertEq(usd.balanceOf(alice), 1 ether); // alice got 1
     }
 
-    function testFail_AcceptRequestOnEmptyRequest() public {
+    function test_AcceptRequestOnEmptyRequest() public {
         vm.prank(bob);
         usd.approve(address(raila), 1 ether);
+        vm.expectRevert(Raila.NotHuman.selector);
         vm.prank(bob);
         raila.acceptRequest(2);
     }
 
-    function testFail_AcceptRequestOnRequestZero() public {
+    function test_AcceptRequestOnRequestZero() public {
         vm.prank(bob);
         usd.approve(address(raila), 1 ether);
+        vm.expectRevert(Raila.NotHuman.selector);
         vm.prank(bob);
         raila.acceptRequest(0);
     }
 
-    function testFail_AcceptRequestOnCanceledRequest() public {
+    function test_AcceptRequestOnCanceledRequest() public {
         vm.prank(alice);
         raila.cancelRequest();
         vm.prank(bob);
         usd.approve(address(raila), 1 ether);
+        vm.expectRevert(Raila.NotHuman.selector);
         vm.prank(bob);
         raila.acceptRequest(1);
     }
 
-    function testFail_AcceptRequestOnActiveLoan() public {
+    function test_AcceptRequestOnActiveLoan() public {
         vm.prank(bob);
         usd.approve(address(raila), 1 ether);
         vm.prank(bob);
         raila.acceptRequest(1);
         vm.prank(bob);
         usd.approve(address(raila), 1 ether);
+        vm.expectRevert(Raila.LoanActive.selector);
         vm.prank(bob);
         raila.acceptRequest(1);
     }
 
-    function testFail_AcceptRequestWithoutEnoughFunds() public {
+    function test_AcceptRequestWithoutEnoughFunds() public {
         vm.prank(bob);
         usd.transfer(eve, 0.9 ether);
         vm.prank(eve);
         usd.approve(address(raila), 1 ether);
+        vm.expectRevert(); // not necessarily reverts with NotPaid; most ERC20 revert
         vm.prank(eve);
         raila.acceptRequest(1);
     }
 
-    function testFail_AcceptRequestWithoutEnoughAllowance() public {
+    function test_AcceptRequestWithoutEnoughAllowance() public {
         vm.prank(bob);
         usd.approve(address(raila), 0.9 ether);
+        vm.expectRevert(); // not necessarily reverts with NotPaid; most ERC20 revert
         vm.prank(bob);
         raila.acceptRequest(1);
     }
@@ -510,7 +533,8 @@ contract ForgiveDebt is RailaTest {
         vm.assertEq(defaultThreshold, 0);
     }
 
-    function testFail_NonCreditorCannotForgive() public {
+    function test_NonCreditorCannotForgive() public {
+        vm.expectRevert(Raila.NotCreditor.selector);
         vm.prank(eve);
         raila.forgiveDebt(1);
     }
@@ -520,19 +544,24 @@ contract ForgiveDebt is RailaTest {
         raila.forgiveDebt(1);
     }
 
-    function testFail_ForgiveTwice() public {
+    function test_ForgiveTwice() public {
         vm.prank(bob);
         raila.forgiveDebt(1);
+        vm.expectRevert(Raila.LoanNotActive.selector);
+        vm.prank(bob);
         raila.forgiveDebt(1);
     }
 
-    function testFail_NotEvenGovernorCanForgiveTwice() public {
+    function test_NotEvenGovernorCanForgiveTwice() public {
         vm.prank(governor);
         raila.forgiveDebt(1);
+        vm.expectRevert(Raila.LoanNotActive.selector);
+        vm.prank(governor);
         raila.forgiveDebt(1);
     }
 
-    function testFail_NoForgiveBadIndex() public {
+    function test_NoForgiveBadIndex() public {
+        vm.expectRevert(Raila.LoanNotActive.selector);
         vm.prank(governor);
         raila.forgiveDebt(2);
     }
@@ -856,23 +885,25 @@ contract PayLoan is RailaTest {
         assertEq(raila.borrowerToRequestId(aliceH), 0); // loan now dead
     }
 
-    function testFail_NoPayWithoutApproval() public {
+    function test_NoPayWithoutApproval() public {
         vm.prank(bob);
         usd.transfer(eve, 2 ether);
+        vm.expectRevert();
         vm.prank(eve);
         raila.payLoan(1, 2 ether);
     }
 
-    function testFail_NoPayLoanDoesNotExist() public {
+    function test_NoPayLoanDoesNotExist() public {
         vm.prank(bob);
         usd.transfer(eve, 2 ether);
         vm.prank(eve);
         usd.approve(address(raila), 2 ether);
+        vm.expectRevert(Raila.LoanNotActive.selector);
         vm.prank(eve);
         raila.payLoan(2, 2 ether);
     }
 
-    function testFail_NoPayLoanCompleted() public {
+    function test_NoPayLoanCompleted() public {
         vm.prank(bob);
         usd.transfer(eve, 2 ether);
         vm.prank(eve);
@@ -880,6 +911,7 @@ contract PayLoan is RailaTest {
         vm.prank(eve);
         raila.payLoan(1, 2 ether);
         // loan is now paid, so this payment must fail
+        vm.expectRevert(Raila.LoanNotActive.selector);
         vm.prank(eve);
         raila.payLoan(1, 0.1 ether);
     }
