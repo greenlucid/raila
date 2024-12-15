@@ -13,13 +13,13 @@ import {UD60x18, powu} from "@prb-math/src/UD60x18.sol";
 
 contract MockPoH is IProofOfHumanity {
     function humanityOf(address owner) public pure returns (bytes20) {
-        if (owner == address(1337)) return bytes20(address(69)); // alice
-        if (owner == address(666)) return bytes20(address(42)); // eve
+        if (owner == address(1)) return bytes20(address(100)); // alice
+        if (owner == address(3)) return bytes20(address(101)); // eve
         else return bytes20(address(0));
     }
     function boundTo(bytes20 _humanityId) public pure returns (address) {
-        if (_humanityId == bytes20(address(69))) return address(1337); // alice
-        if (_humanityId == bytes20(address(42))) return address(666); // eve
+        if (_humanityId == bytes20(address(100))) return address(1); // alice
+        if (_humanityId == bytes20(address(101))) return address(3); // eve
         else return address(0);
     }
 }
@@ -30,6 +30,20 @@ contract PolloCoin is ERC20 {
     }
 }
 
+contract RailaTest is Test {
+    address alice = address(1);
+    address bob = address(2);
+    address eve = address(3);
+    address governor = address(4);
+    address treasury = address(5);
+    address deployer = address(6);
+    bytes20 aliceH = bytes20(address(100));
+    bytes20 eveH = bytes20(address(101));
+
+    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
+    UD60x18 constant INTEREST_RATE_30_YEAR = UD60x18.wrap(1000000008319516200);
+}
+
 contract Constructor is Test {
     IProofOfHumanity poh;
     ERC20 usd;
@@ -37,7 +51,7 @@ contract Constructor is Test {
     UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
 
     function setUp() public {
-        vm.prank(address(777));
+        vm.prank(address(2));
         poh = new MockPoH();
         usd = new PolloCoin(1e18);
     }
@@ -53,66 +67,64 @@ contract Constructor is Test {
     }
 }
 
-contract GovernorChanges is Test {
+contract GovernorChanges is RailaTest {
     IProofOfHumanity poh;
     ERC20 usd;
     Raila raila;
-    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
-    UD60x18 constant INTEREST_RATE_30_YEAR = UD60x18.wrap(1000000008319516200); 
 
     function setUp() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         poh = new MockPoH();
         usd = new PolloCoin(1e18);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
+        raila = new Raila(governor, treasury, 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
     }
 
     function test_ChangeGovernor() public {
-        vm.prank(address(1000));
+        vm.prank(governor);
         raila.changeGovernor(address(1001));
         assertEq(raila.GOVERNOR(), address(1001));
     }
 
     function testFail_ChangeGovernorIntruder() public {
-        vm.prank(address(666));
+        vm.prank(eve);
         raila.changeGovernor(address(1001));
     }
 
     function test_ChangeTreasury() public {
-        vm.prank(address(1000));
+        vm.prank(governor);
         raila.changeTreasury(address(1001));
         assertEq(raila.TREASURY(), address(1001));
     }
 
     function testFail_ChangeTreasuryIntruder() public {
-        vm.prank(address(666));
+        vm.prank(eve);
         raila.changeTreasury(address(1001));
     }
 
     function test_ChangeFeeRate() public {
-        vm.prank(address(1000));
+        vm.prank(governor);
         raila.changeFeeRate(100);
         assertEq(raila.FEE_RATE(), 100);
     }
 
     function testFail_ChangeFeeRateIntruder() public {
-        vm.prank(address(666));
+        vm.prank(eve);
         raila.changeFeeRate(100);
     }
 
     function test_ChangeMinInterestPeriod() public {
-        vm.prank(address(1000));
+        vm.prank(governor);
         raila.changeMinimumInterestPeriod(60 days);
         assertEq(raila.MINIMUM_INTEREST_PERIOD(), 60 days);
     }
 
     function testFail_ChangeMinInterestPeriodIntruder() public {
-        vm.prank(address(666));
+        vm.prank(eve);
         raila.changeMinimumInterestPeriod(60 days);
     }
 
     function test_ChangeMaxInterestRate() public {
-        vm.prank(address(1000));
+        vm.prank(governor);
         raila.changeMaximumInterestRate(INTEREST_RATE_30_YEAR);
         assertEq(
             UD60x18.unwrap(raila.MAXIMUM_INTEREST_RATE()),
@@ -121,59 +133,57 @@ contract GovernorChanges is Test {
     }
 
     function testFail_ChangeMaxInterestRateIntruder() public {
-        vm.prank(address(666));
+        vm.prank(eve);
         raila.changeMaximumInterestRate(INTEREST_RATE_30_YEAR);
     }
 }
 
-contract CreateRequest is Test {
+contract CreateRequest is RailaTest {
     IProofOfHumanity poh;
     ERC20 usd;
     Raila raila;
 
-    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
-    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200; 
-
     function setUp() public {
         poh = new MockPoH();
+        vm.prank(bob);
         usd = new PolloCoin(1e18);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
+        raila = new Raila(governor, treasury, 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
     }
 
     function test_RequestLogs() public {
-        vm.prank(address(1337));
+        vm.prank(alice);
         vm.expectEmit(true, true, false, true);
-        emit Raila.RequestCreation(bytes20(address(69)), 1, "");
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        emit Raila.RequestCreation(aliceH, 1, "");
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
     }
 
     function test_RequestReads() public {
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
         // must mutate requestCounter, add reference borrower => request, and request data
         assertEq(raila.lastRequestId(), 1);
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1);
+        assertEq(raila.borrowerToRequestId(aliceH), 1);
 
         (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
         uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
         uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
-        vm.assertEq(debtor, bytes20(address(69)));
+        vm.assertEq(debtor, aliceH);
         vm.assertEq(createdAtBlock, block.number);
         vm.assertEq(uint8(status), uint8(Raila.RequestStatus.Open));
         vm.assertEq(creditor, address(0));
         vm.assertEq(fundedAt, 0); // wasn't funded yet
         vm.assertEq(lastUpdatedAt, 0); 
         vm.assertEq(feeRate, 0); // fee rate is not set here, but on acceptRequest
-        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR);
+        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR.unwrap());
         vm.assertEq(originalDebt, 1 ether);
         vm.assertEq(totalDebt, 0);
         vm.assertEq(defaultThreshold, 2 ether);
     }
 
     function test_RequestZeroDoesNotExistAlwaysContainsEmptyData() public {
-        vm.prank(address(1337));
+        vm.prank(alice);
         // create a request for good measure, ensure it won't overwrite it
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
         (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
         uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
         uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(0);
@@ -191,113 +201,106 @@ contract CreateRequest is Test {
     }
 
     function testFail_RequesterMustBeHuman() public {
-        vm.prank(address(1336));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
-    }
-
-    function test_RequesterMustBeHuman() public {
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        vm.prank(bob);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
     }
 
     function testFail_MaxOneRequestPerHuman() public {
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
     }
 
     function testFail_StartingOwedAmountMustBeUnderDefaultsAt() public {
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1 ether, "");
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 1 ether, "");
     }
 
     function testFail_StartingOwedAmountMustBeUnderDefaultsAtInterestIncluded() public {
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1.01 ether, "");
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 1.01 ether, "");
     }
 
     // just checking close cases that might break 
     function testFail_StartingOwedAmountBarelyDefaultsAtInterestIncluded() public {
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1.06683 ether, "");
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 1.06683 ether, "");
     }
 
     // just checking a close case that might break 
     function test_StartingOwedAmountBarelyNotDefaultsAtInterestIncluded() public {
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1.06684 ether, "");
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 1.06684 ether, "");
     }
 
     // intended: NOOPs, interfaces/subgraph will hide useless logs
     function test_RequesterCanRequestZero() public {
-        vm.prank(address(1337));
-        raila.createRequest(0, UD60x18.wrap(INTEREST_RATE_30_YEAR), 1 ether, "");
+        vm.prank(alice);
+        raila.createRequest(0, INTEREST_RATE_30_YEAR, 1 ether, "");
     }
 
     // although if the defaultsAt is also zero it won't allow it
     function testFail_RequestOfZeroFailsWithZeroDefaultsAt() public {
-        vm.prank(address(1337));
-        raila.createRequest(0, UD60x18.wrap(INTEREST_RATE_30_YEAR), 0, "");
+        vm.prank(alice);
+        raila.createRequest(0, INTEREST_RATE_30_YEAR, 0, "");
     }
 
     // the user cannot condemn themselves to infinite debt
     function testFail_RequesterInsaneInterest() public {
-        vm.prank(address(1337));
-        uint256 INTEREST_RATE_OVER_500000_YEAR = 1000002000000000000;
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_OVER_500000_YEAR), 20000 ether, "");
+        vm.prank(alice);
+        UD60x18 INTEREST_RATE_OVER_500000_YEAR = UD60x18.wrap(1000002000000000000);
+        raila.createRequest(1 ether, INTEREST_RATE_OVER_500000_YEAR, 20000 ether, "");
     }
 
     // the user cannot request a negative interest debt
     function testFail_RequesterNegativeInterest() public {
-        vm.prank(address(1337));
-        uint256 INTEREST_RATE_NEGATIVE = 900000000000000000;
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_NEGATIVE), 2 ether, "");
+        vm.prank(alice);
+        UD60x18 INTEREST_RATE_NEGATIVE = UD60x18.wrap(900000000000000000);
+        raila.createRequest(1 ether, INTEREST_RATE_NEGATIVE, 2 ether, "");
     }
 
     // the user cannot request a 0% interest debt
     function testFail_RequesterZeroInterest() public {
-        vm.prank(address(1337));
-        uint256 INTEREST_RATE_ZERO = 1000000000000000000;
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_ZERO), 2 ether, "");
+        vm.prank(alice);
+        UD60x18 INTEREST_RATE_ZERO = UD60x18.wrap(1000000000000000000);
+        raila.createRequest(1 ether, INTEREST_RATE_ZERO, 2 ether, "");
     }
 }
 
-contract CancelRequest is Test {
+contract CancelRequest is RailaTest {
     IProofOfHumanity poh;
     ERC20 usd;
     Raila raila;
 
-    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
-    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
-
     function setUp() public {
         poh = new MockPoH();
-        vm.prank(address(777));
+        vm.prank(bob);
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        raila = new Raila(governor, treasury, 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
         // request will be at 1
     }
 
     function test_AliceCancelsHerRequest() public {
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.cancelRequest();
     }
 
     function test_CancelRequestLogs() public {
-        vm.prank(address(1337));
+        vm.prank(alice);
         vm.expectEmit(true, false, false, true);
         emit Raila.RequestCanceled(1);
         raila.cancelRequest();
     }
 
     function test_CancelRequestReads() public {
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.cancelRequest();
 
         assertEq(raila.lastRequestId(), 1); // had incremented
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // ref must be erased
+        assertEq(raila.borrowerToRequestId(aliceH), 0); // ref must be erased
 
         // cancelling a request must delete all struct data
         (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
@@ -317,165 +320,161 @@ contract CancelRequest is Test {
     }
 
     function testFail_NonHumanCannotCancelRequest() public {
-        vm.prank(address(1336));
+        vm.prank(bob);
         raila.cancelRequest();
     }
 
     function testFail_EveCannotCancelRequest() public {
-        vm.prank(address(666));
+        // because she doesn't have an open request
+        vm.prank(eve);
         raila.cancelRequest();
     }
 
     function testFail_CannotCancelRequestIfLoanBegan() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(1);
 
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.cancelRequest();
     }
 }
 
-contract AcceptRequest is Test {
+contract AcceptRequest is RailaTest {
     IProofOfHumanity poh;
     ERC20 usd;
     Raila raila;
 
-    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
-    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
-
     function setUp() public {
         poh = new MockPoH();
-        vm.prank(address(777));
+        vm.prank(bob);
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
+        raila = new Raila(governor, treasury, 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
         // request will be at 1
     }
 
     function test_CreditorCanAcceptRequest() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(1);
     }
 
     function test_AcceptRequestLogs() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(777), address(1337), 1 ether);
+        emit IERC20.Transfer(bob, alice, 1 ether);
         vm.expectEmit(true, true, true, false, address(raila));
-        emit IERC721.Transfer(address(0), address(777), 1); // loan nft mint
-        vm.prank(address(777));
+        emit IERC721.Transfer(address(0), bob, 1); // loan nft mint
+        vm.prank(bob);
         raila.acceptRequest(1);
     }
 
     function test_AcceptRequestReads() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(1);
 
         (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
         uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
         uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
-        vm.assertEq(debtor, bytes20(address(69)));
+        vm.assertEq(debtor, aliceH);
         vm.assertEq(createdAtBlock, block.number);
         vm.assertEq(uint8(status), uint8(1));
-        vm.assertEq(creditor, address(777));
+        vm.assertEq(creditor, bob);
         vm.assertEq(fundedAt, block.timestamp);
         vm.assertEq(lastUpdatedAt, block.timestamp + 86400 * 90); 
         vm.assertEq(feeRate, 500);
-        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR);
+        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR.unwrap());
         vm.assertEq(originalDebt, 1 ether);
         vm.assertEq(totalDebt, 1066830984986877400); // precompounded for minimum period
         vm.assertEq(defaultThreshold, 2 ether);
 
-        vm.assertEq(raila.balanceOf(address(777)), 1);
+        vm.assertEq(raila.borrowerToRequestId(aliceH), 1); // alice still borrower
+        vm.assertEq(raila.balanceOf(bob), 1); // owner of the nft = creditor of loan
 
         // check new balances
-        vm.assertEq(usd.balanceOf(address(777)), 99 ether); // creditor started 100 but lost 1
-        vm.assertEq(usd.allowance(address(777), address(raila)), 0 ether); // spent allowance
-        vm.assertEq(usd.balanceOf(address(1337)), 1 ether); // alice got 1
+        vm.assertEq(usd.balanceOf(bob), 99 ether); // creditor started 100 but lost 1
+        vm.assertEq(usd.allowance(bob, address(raila)), 0 ether); // spent allowance
+        vm.assertEq(usd.balanceOf(alice), 1 ether); // alice got 1
     }
 
     function testFail_AcceptRequestOnEmptyRequest() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(2);
     }
 
     function testFail_AcceptRequestOnRequestZero() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(0);
     }
 
     function testFail_AcceptRequestOnCanceledRequest() public {
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.cancelRequest();
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(1);
     }
 
     function testFail_AcceptRequestOnActiveLoan() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(1);
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(1);
     }
 
     function testFail_AcceptRequestWithoutEnoughFunds() public {
-        vm.prank(address(777));
-        usd.transfer(address(778), 0.9 ether);
-        vm.prank(address(778));
+        vm.prank(bob);
+        usd.transfer(eve, 0.9 ether);
+        vm.prank(eve);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(778));
+        vm.prank(eve);
         raila.acceptRequest(1);
     }
 
     function testFail_AcceptRequestWithoutEnoughAllowance() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         usd.approve(address(raila), 0.9 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(1);
     }
 }
 
-contract ForgiveDebt is Test {
+contract ForgiveDebt is RailaTest {
     IProofOfHumanity poh;
     ERC20 usd;
     Raila raila;
 
-    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
-    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
-
     function setUp() public {
         poh = new MockPoH();
-        vm.prank(address(777));
+        vm.prank(bob);
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
-        vm.prank(address(777));
+        raila = new Raila(governor, treasury, 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(1);
     }
 
     function test_CreditorCanForgiveDebt() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.forgiveDebt(1);
     }
 
@@ -483,17 +482,17 @@ contract ForgiveDebt is Test {
         vm.expectEmit(true, false, false, true, address(raila));
         emit Raila.LoanForgiven(1, 1066830984986877400);
         vm.expectEmit(true, true, true, false, address(raila));
-        emit IERC721.Transfer(address(777), address(0), 1); // loan nft burn
+        emit IERC721.Transfer(bob, address(0), 1); // loan nft burn
 
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.forgiveDebt(1);
     }
 
     function test_ForgiveDebtReads() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.forgiveDebt(1);
 
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // ref must be erased
+        assertEq(raila.borrowerToRequestId(aliceH), 0); // ref must be erased
         // forgiving a request must delete all struct data
         (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
         uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
@@ -512,29 +511,29 @@ contract ForgiveDebt is Test {
     }
 
     function testFail_NonCreditorCannotForgive() public {
-        vm.prank(address(666));
+        vm.prank(eve);
         raila.forgiveDebt(1);
     }
 
     function test_GovernorCanForgive() public {
-        vm.prank(address(1000));
+        vm.prank(governor);
         raila.forgiveDebt(1);
     }
 
     function testFail_ForgiveTwice() public {
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.forgiveDebt(1);
         raila.forgiveDebt(1);
     }
 
     function testFail_NotEvenGovernorCanForgiveTwice() public {
-        vm.prank(address(1000));
+        vm.prank(governor);
         raila.forgiveDebt(1);
         raila.forgiveDebt(1);
     }
 
     function testFail_NoForgiveBadIndex() public {
-        vm.prank(address(1000));
+        vm.prank(governor);
         raila.forgiveDebt(2);
     }
 
@@ -544,64 +543,61 @@ contract ForgiveDebt is Test {
         vm.expectEmit(true, false, false, true, address(raila));
         emit Raila.LoanForgiven(1, 2051982084767566658);
         vm.expectEmit(true, true, true, false, address(raila));
-        emit IERC721.Transfer(address(777), address(0), 1); // loan nft burn
+        emit IERC721.Transfer(bob, address(0), 1); // loan nft burn
 
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.forgiveDebt(1);
     }
 }
 
-contract PayLoan is Test {
+contract PayLoan is RailaTest {
     IProofOfHumanity poh;
     ERC20 usd;
     Raila raila;
 
-    UD60x18 constant INTEREST_RATE_MAX = UD60x18.wrap(1000000831951620000);
-    uint256 constant INTEREST_RATE_30_YEAR = 1000000008319516200;
-
     function setUp() public {
         poh = new MockPoH();
-        vm.prank(address(777));
+        vm.prank(bob);
         usd = new PolloCoin(100 ether);
-        raila = new Raila(address(1000), address(1000), 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
-        vm.prank(address(1337));
-        raila.createRequest(1 ether, UD60x18.wrap(INTEREST_RATE_30_YEAR), 2 ether, "");
-        vm.prank(address(777));
+        raila = new Raila(governor, treasury, 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
+        vm.prank(bob);
         usd.approve(address(raila), 1 ether);
-        vm.prank(address(777));
+        vm.prank(bob);
         raila.acceptRequest(1);
     }
 
     function test_AliceFullyPaysImmediately() public {
         // alice gets all money required and pays instantly with an excess of 0.01 ether
         // she pays original, plus min interest, and gets the excess back.
-        vm.prank(address(777));
-        usd.transfer(address(1337), 76830984986877400);
-        vm.prank(address(1337));
+        vm.prank(bob);
+        usd.transfer(alice, 76830984986877400);
+        vm.prank(alice);
         usd.approve(address(raila), 1076830984986877400);
         // alice usd => raila
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(1337), address(raila), 1076830984986877400);
+        emit IERC20.Transfer(alice, address(raila), 1076830984986877400);
         // payment announcement
         vm.expectEmit(true, false, false, true, address(raila));
         emit Raila.LoanRepayment(1, 1066830984986877400, 0);
         // total to creditor (original + most of interest)
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(777), 1063489435737533530);
+        emit IERC20.Transfer(address(raila), bob, 1063489435737533530);
         // fees to raila treasury (feeRate * interest)
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(1000), 3341549249343870);
+        emit IERC20.Transfer(address(raila), treasury, 3341549249343870);
         // excess back to usd sender
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(1337), 10000000000000000);
+        emit IERC20.Transfer(address(raila), alice, 10000000000000000);
         // full payment destroys the loan nft
         vm.expectEmit(true, true, true, false, address(raila));
-        emit IERC721.Transfer(address(777), address(0), 1);
+        emit IERC721.Transfer(bob, address(0), 1);
 
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.payLoan(1, 1076830984986877400);
 
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // ref must be erased
+        assertEq(raila.borrowerToRequestId(aliceH), 0); // ref must be erased
         // fully paying a loan must delete all struct data
         (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
         uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
@@ -622,132 +618,132 @@ contract PayLoan is Test {
     function test_AliceFullyPaysAtMinimumPeriod() public {
         // everything should happen exactly as the test above, despite the time.
         vm.warp(block.timestamp + 86400 * 90);
-        vm.prank(address(777));
-        usd.transfer(address(1337), 76830984986877400);
-        vm.prank(address(1337));
+        vm.prank(bob);
+        usd.transfer(alice, 76830984986877400);
+        vm.prank(alice);
         usd.approve(address(raila), 1076830984986877400);
         // alice usd => raila
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(1337), address(raila), 1076830984986877400);
+        emit IERC20.Transfer(alice, address(raila), 1076830984986877400);
         // payment announcement
         vm.expectEmit(true, false, false, true, address(raila));
         emit Raila.LoanRepayment(1, 1066830984986877400, 0);
         // total to creditor (original + most of interest)
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(777), 1063489435737533530);
+        emit IERC20.Transfer(address(raila), bob, 1063489435737533530);
         // fees to raila treasury (feeRate * interest)
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(1000), 3341549249343870);
+        emit IERC20.Transfer(address(raila), treasury, 3341549249343870);
         // excess back to usd sender
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(1337), 10000000000000000);
+        emit IERC20.Transfer(address(raila), alice, 10000000000000000);
         // full payment destroys the loan nft
         vm.expectEmit(true, true, true, false, address(raila));
-        emit IERC721.Transfer(address(777), address(0), 1);
+        emit IERC721.Transfer(bob, address(0), 1);
 
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.payLoan(1, 1076830984986877400);
     }
 
     function test_AliceFullyPaysOneDayAfterMinPeriod() public {
         // numbers are slightly bigger to account for 1 day of extra interest
         vm.warp(block.timestamp + 86400 * 91);
-        vm.prank(address(777));
-        usd.transfer(address(1337), 76830984986877400);
-        vm.prank(address(1337));
+        vm.prank(bob);
+        usd.transfer(alice, 76830984986877400);
+        vm.prank(alice);
         usd.approve(address(raila), 1076830984986877400);
         // alice usd => raila
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(1337), address(raila), 1076830984986877400);
+        emit IERC20.Transfer(alice, address(raila), 1076830984986877400);
         // payment announcement
         vm.expectEmit(true, false, false, true, address(raila));
         emit Raila.LoanRepayment(1, 1067598105382081556, 0);
         // total to creditor (original + most of interest)
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(777), 1064218200112977479);
+        emit IERC20.Transfer(address(raila), bob, 1064218200112977479);
         // fees to raila treasury (feeRate * interest)
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(1000), 3379905269104077);
+        emit IERC20.Transfer(address(raila), treasury, 3379905269104077);
         // excess back to usd sender
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(1337), 9232879604795844);
+        emit IERC20.Transfer(address(raila), alice, 9232879604795844);
         // full payment destroys the loan nft
         vm.expectEmit(true, true, true, false, address(raila));
-        emit IERC721.Transfer(address(777), address(0), 1);
+        emit IERC721.Transfer(bob, address(0), 1);
 
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.payLoan(1, 1076830984986877400);
     }
 
     function test_AliceOnlyPaysOriginalDebt() public {
-        vm.prank(address(1337));
+        vm.prank(alice);
         usd.approve(address(raila), 1000000000000000000);
         // alice usd => raila
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(1337), address(raila), 1000000000000000000);
+        emit IERC20.Transfer(alice, address(raila), 1000000000000000000);
         // payment announcement. there's debt remaining
         vm.expectEmit(true, false, false, true, address(raila));
         emit Raila.LoanRepayment(1, 1000000000000000000, 66830984986877400);
         // total to creditor (original), no interest debt paid.
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(777), 1000000000000000000);
+        emit IERC20.Transfer(address(raila), bob, 1000000000000000000);
         // no fees to raila treasury
         // no excess back to usd sender
         // loan was not extinguished
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.payLoan(1, 1000000000000000000);
         // loan was not extinguished, so ref must remain
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1);
+        assertEq(raila.borrowerToRequestId(aliceH), 1);
         // loan remains, but original debt has been paid
         (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
         uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
         uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
-        vm.assertEq(debtor, bytes20(address(69)));
+        vm.assertEq(debtor, aliceH);
         vm.assertEq(createdAtBlock, block.number);
         vm.assertEq(uint8(status), uint8(1));
-        vm.assertEq(creditor, address(777));
+        vm.assertEq(creditor, bob);
         vm.assertEq(fundedAt, block.timestamp);
         // payment before the min interest period, so lastUpdatedAt is min period + fundedAt
         vm.assertEq(lastUpdatedAt, block.timestamp + 86400 * 90); 
         vm.assertEq(feeRate, 500);
-        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR);
+        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR.unwrap());
         vm.assertEq(originalDebt, 0); // fully paid
         vm.assertEq(totalDebt, 66830984986877400);
         vm.assertEq(defaultThreshold, 2 ether);
     }
 
     function test_AlicePaysOriginalDebtPartially() public {
-        vm.prank(address(1337));
+        vm.prank(alice);
         usd.approve(address(raila), 0.01 ether);
         // alice usd => raila
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(1337), address(raila), 0.01 ether);
+        emit IERC20.Transfer(alice, address(raila), 0.01 ether);
         // payment announcement. there's debt remaining
         vm.expectEmit(true, false, false, true, address(raila));
         emit Raila.LoanRepayment(1, 0.01 ether, 1056830984986877400);
         // total to creditor (original), no interest debt paid.
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(777), 0.01 ether);
+        emit IERC20.Transfer(address(raila), bob, 0.01 ether);
         // no fees to raila treasury
         // no excess back to usd sender
         // loan was not extinguished
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.payLoan(1, 0.01 ether);
         // loan was not extinguished, so ref must remain
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1);
+        assertEq(raila.borrowerToRequestId(aliceH), 1);
         // loan remains, only some original debt has been paid
         (bytes20 debtor, uint40 createdAtBlock, Raila.RequestStatus status, address creditor, uint40 fundedAt,
         uint40 lastUpdatedAt, uint16 feeRate, UD60x18 interestRatePerSecond,
         uint256 originalDebt, uint256 totalDebt, uint256 defaultThreshold) = raila.requests(1);
-        vm.assertEq(debtor, bytes20(address(69)));
+        vm.assertEq(debtor, aliceH);
         vm.assertEq(createdAtBlock, block.number);
         vm.assertEq(uint8(status), uint8(1));
-        vm.assertEq(creditor, address(777));
+        vm.assertEq(creditor, bob);
         vm.assertEq(fundedAt, block.timestamp);
         // payment before the min interest period, so lastUpdatedAt is min period + fundedAt
         vm.assertEq(lastUpdatedAt, block.timestamp + 86400 * 90); 
         vm.assertEq(feeRate, 500);
-        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR);
+        vm.assertEq(interestRatePerSecond.unwrap(), INTEREST_RATE_30_YEAR.unwrap());
         vm.assertEq(originalDebt, 0.99 ether); // fully paid
         vm.assertEq(totalDebt, 1056830984986877400);
         vm.assertEq(defaultThreshold, 2 ether);
@@ -755,29 +751,29 @@ contract PayLoan is Test {
 
     function test_OriginalDebtDoesNotGrow() public {
         vm.warp(block.timestamp + 1000 days); // few years pass, but original debt is stuck.
-        vm.prank(address(1337));
+        vm.prank(alice);
         usd.approve(address(raila), 0.01 ether);
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.payLoan(1, 0.01 ether);
         (,,,,,,,,uint256 originalDebt,,) = raila.requests(1);
         vm.assertEq(originalDebt, 0.99 ether);
     }
 
     function test_AlicePaysOriginalAndSomeInterest() public {
-        vm.prank(address(777));
-        usd.transfer(address(1337), 0.01 ether);
-        vm.prank(address(1337));
+        vm.prank(bob);
+        usd.transfer(alice, 0.01 ether);
+        vm.prank(alice);
         usd.approve(address(raila), 1.01 ether);
-        vm.prank(address(1337));
+        vm.prank(alice);
         // payment announcement
         vm.expectEmit(true, false, false, true, address(raila));
         emit Raila.LoanRepayment(1, 1.01 ether, 56830984986877400);
         // total to creditor (original + most of interest)
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(777), 1009500000000000000);
+        emit IERC20.Transfer(address(raila), bob, 1009500000000000000);
         // fees to raila treasury (feeRate * interest)
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(1000), 500000000000000);
+        emit IERC20.Transfer(address(raila), treasury, 500000000000000);
         raila.payLoan(1, 1.01 ether);
 
         (,,,,,,,,uint256 originalDebt, uint256 totalDebt,) = raila.requests(1);
@@ -787,16 +783,16 @@ contract PayLoan is Test {
 
     function test_PayingDebtInBatches() public {
         // realistic amortization of debt in a few batches separated by time
-        vm.prank(address(1337));
+        vm.prank(alice);
         usd.approve(address(raila), 100 ether);
         // batch 1
         uint256 originTime = block.timestamp;
         vm.warp(block.timestamp + 100 days);
-        vm.prank(address(777));
-        usd.transfer(address(1337), 0.5 ether);
-        vm.prank(address(1337));
+        vm.prank(bob);
+        usd.transfer(alice, 0.5 ether);
+        vm.prank(alice);
         raila.payLoan(1, 0.5 ether);
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1); // loan still alive
+        assertEq(raila.borrowerToRequestId(aliceH), 1); // loan still alive
         (,,,,uint256 fundedAt1,uint256 lastUpdated1,,,uint256 originalDebt1,uint256 totalDebt1,) = raila.requests(1);
         vm.assertEq(fundedAt1, originTime);
         vm.assertEq(lastUpdated1, originTime + 100 days);
@@ -806,11 +802,11 @@ contract PayLoan is Test {
         vm.assertLt(originalDebt1, totalDebt1); // invariant: while loan, ogd < totd
         // batch 2
         vm.warp(block.timestamp + 100 days);
-        vm.prank(address(777));
-        usd.transfer(address(1337), 0.5 ether);
-        vm.prank(address(1337));
+        vm.prank(bob);
+        usd.transfer(alice, 0.5 ether);
+        vm.prank(alice);
         raila.payLoan(1, 0.5 ether);
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 1); // loan still alive
+        assertEq(raila.borrowerToRequestId(aliceH), 1); // loan still alive
         (,,,,uint256 fundedAt2,uint256 lastUpdated2,,,uint256 originalDebt2,uint256 totalDebt2,) = raila.requests(1);
         vm.assertEq(fundedAt2, originTime);
         vm.assertEq(lastUpdated2, originTime + 200 days);
@@ -818,84 +814,84 @@ contract PayLoan is Test {
         vm.assertEq(totalDebt2, 117344871033698420);
         // batch 3
         vm.warp(block.timestamp + 100 days);
-        vm.prank(address(777));
-        usd.transfer(address(1337), 0.5 ether);
+        vm.prank(bob);
+        usd.transfer(alice, 0.5 ether);
         // lets make sure she gets the excess
         // alice usd => raila
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(1337), address(raila), 0.5 ether);
+        emit IERC20.Transfer(alice, address(raila), 0.5 ether);
         // payment announcement
         vm.expectEmit(true, false, false, true, address(raila));
         emit Raila.LoanRepayment(1, 126090239161322057, 0);
         // total to creditor
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(777), 119785727203255955);
+        emit IERC20.Transfer(address(raila), bob, 119785727203255955);
         // fees to raila treasury (feeRate * interest)
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(1000), 6304511958066102);
+        emit IERC20.Transfer(address(raila), treasury, 6304511958066102);
         // excess back to usd sender
         vm.expectEmit(true, true, false, true, address(usd));
-        emit IERC20.Transfer(address(raila), address(1337), 373909760838677943);
+        emit IERC20.Transfer(address(raila), alice, 373909760838677943);
         // full payment destroys the loan nft
         vm.expectEmit(true, true, true, false, address(raila));
-        emit IERC721.Transfer(address(777), address(0), 1);
+        emit IERC721.Transfer(bob, address(0), 1);
 
-        vm.prank(address(1337));
+        vm.prank(alice);
         raila.payLoan(1, 0.5 ether);
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // loan now dead
+        assertEq(raila.borrowerToRequestId(aliceH), 0); // loan now dead
         (,,,,,,,,uint256 originalDebt3,uint256 totalDebt3,) = raila.requests(1);
         vm.assertEq(originalDebt3, 0);
         vm.assertEq(totalDebt3, 0);
         // treasury should've obtained some money, ~6 mETH
-        vm.assertLe(0.006 ether, usd.balanceOf(address(1000)));
+        vm.assertLe(0.006 ether, usd.balanceOf(treasury));
     }
 
     function test_ThirdPartyCanPayLoan() public {
-        vm.prank(address(777));
-        usd.transfer(address(333), 2 ether);
-        vm.prank(address(333));
+        vm.prank(bob);
+        usd.transfer(eve, 2 ether);
+        vm.prank(eve);
         usd.approve(address(raila), 2 ether);
-        vm.prank(address(333));
+        vm.prank(eve);
         raila.payLoan(1, 2 ether);
-        assertEq(raila.borrowerToRequestId(bytes20(address(69))), 0); // loan now dead
+        assertEq(raila.borrowerToRequestId(aliceH), 0); // loan now dead
     }
 
     function testFail_NoPayWithoutApproval() public {
-        vm.prank(address(777));
-        usd.transfer(address(333), 2 ether);
-        vm.prank(address(333));
+        vm.prank(bob);
+        usd.transfer(eve, 2 ether);
+        vm.prank(eve);
         raila.payLoan(1, 2 ether);
     }
 
     function testFail_NoPayLoanDoesNotExist() public {
-        vm.prank(address(777));
-        usd.transfer(address(333), 2 ether);
-        vm.prank(address(333));
+        vm.prank(bob);
+        usd.transfer(eve, 2 ether);
+        vm.prank(eve);
         usd.approve(address(raila), 2 ether);
-        vm.prank(address(333));
+        vm.prank(eve);
         raila.payLoan(2, 2 ether);
     }
 
     function testFail_NoPayLoanCompleted() public {
-        vm.prank(address(777));
-        usd.transfer(address(333), 2 ether);
-        vm.prank(address(333));
+        vm.prank(bob);
+        usd.transfer(eve, 2 ether);
+        vm.prank(eve);
         usd.approve(address(raila), 2 ether);
-        vm.prank(address(333));
+        vm.prank(eve);
         raila.payLoan(1, 2 ether);
         // loan is now paid, so this payment must fail
-        vm.prank(address(333));
+        vm.prank(eve);
         raila.payLoan(1, 0.1 ether);
     }
 
     function test_CanPayWithZero() public {
-        vm.prank(address(333));
+        vm.prank(eve);
         raila.payLoan(1, 0);
     }
 
     function test_PayingWithZeroCanUpdateValues() public {
         // paying 0 at time 0 is a noop
-        vm.prank(address(333));
+        vm.prank(eve);
         raila.payLoan(1, 0);
         uint256 originTime = block.timestamp;
         (,,,,uint256 fundedAt0,uint256 lastUpdated0,,,uint256 originalDebt0,uint256 totalDebt0,) = raila.requests(1);
@@ -912,7 +908,7 @@ contract PayLoan is Test {
         vm.assertEq(totalDebt1, 1066830984986877400);
         // paying 0 at time after min_period mutates lastUpdated and the interest
         vm.warp(block.timestamp + 1000 days);
-        vm.prank(address(333));
+        vm.prank(eve);
         raila.payLoan(1, 0);
         (,,,,uint256 fundedAt2,uint256 lastUpdated2,,,uint256 originalDebt2,uint256 totalDebt2,) = raila.requests(1);
         vm.assertEq(fundedAt2, originTime);
