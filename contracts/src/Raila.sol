@@ -222,8 +222,6 @@ contract Raila is IERC721, IERC721Metadata {
     }
 
     function forgiveDebt(uint256 requestId) external {
-        // todo this is equivalent to transferring the creditor status to debtor
-        // so migrate as internal function of Transfer => debtor?
         Request storage request = requests[requestId];
         require(
             request.status == RequestStatus.Loan
