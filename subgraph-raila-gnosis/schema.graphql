@@ -1,57 +1,30 @@
-type Approval @entity(immutable: true) {
-  id: Bytes!
-  owner: Bytes! # address
-  approved: Bytes! # address
-  tokenId: BigInt! # uint256
-  blockNumber: BigInt!
-  blockTimestamp: BigInt!
-  transactionHash: Bytes!
+enum Status {
+  Open
+  Lent
+  Canceled
 }
 
-type ApprovalForAll @entity(immutable: true) {
-  id: Bytes!
-  owner: Bytes! # address
-  operator: Bytes! # address
-  approved: Boolean! # bool
-  blockNumber: BigInt!
-  blockTimestamp: BigInt!
-  transactionHash: Bytes!
+## ! indica que es obligatorio o no, no tenerlo es (opcional)
+
+type Request @entity {
+  id: ID! ## MEANS STRING
+  loan: Loan
+  debtor: Bytes!
+  createdAtBlock: BigInt!
+  defaultThreshold: BigInt!
+  status: Status!
+  canceledAt: BigInt
 }
 
-type LoanRepayment @entity(immutable: true) {
-  id: Bytes!
-  requestId: BigInt! # uint256
-  repaidAmount: BigInt! # uint256
-  pendingDebt: BigInt! # uint256
-  blockNumber: BigInt!
-  blockTimestamp: BigInt!
-  transactionHash: Bytes!
-}
-
-type RequestCanceled @entity(immutable: true) {
-  id: Bytes!
-  requestId: BigInt! # uint256
-  blockNumber: BigInt!
-  blockTimestamp: BigInt!
-  transactionHash: Bytes!
-}
-
-type RequestCreation @entity(immutable: true) {
-  id: Bytes!
-  debtor: Bytes! # bytes20
-  requestId: BigInt! # uint256
-  requestMetadata: String! # string
-  blockNumber: BigInt!
-  blockTimestamp: BigInt!
-  transactionHash: Bytes!
-}
-
-type Transfer @entity(immutable: true) {
-  id: Bytes!
-  from: Bytes! # address
-  to: Bytes! # address
-  tokenId: BigInt! # uint256
-  blockNumber: BigInt!
-  blockTimestamp: BigInt!
-  transactionHash: Bytes!
+type Loan @entity {
+  id: ID!
+  request: Request!
+  creditor: Bytes!
+  fundedAt: BigInt!
+  lastUpdatedAt: BigInt!
+  feeRate: BigInt!
+  interestRatePerSecond: String!
+  originalDebt: BigInt!
+  totalDebt: BigInt!
+  repaidAmount: BigInt!
 }

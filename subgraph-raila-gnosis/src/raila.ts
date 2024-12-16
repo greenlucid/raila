@@ -4,101 +4,56 @@ import {
   LoanRepayment as LoanRepaymentEvent,
   RequestCanceled as RequestCanceledEvent,
   RequestCreation as RequestCreationEvent,
-  Transfer as TransferEvent
-} from "../generated/Raila/Raila"
-import {
-  Approval,
-  ApprovalForAll,
-  LoanRepayment,
-  RequestCanceled,
-  RequestCreation,
-  Transfer
-} from "../generated/schema"
+  Transfer as TransferEvent,
+  Raila,
+  Transfer,
+} from "../generated/Raila/Raila";
+import { Loan, Request } from "../generated/schema";
 
-export function handleApproval(event: ApprovalEvent): void {
-  let entity = new Approval(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.owner = event.params.owner
-  entity.approved = event.params.approved
-  entity.tokenId = event.params.tokenId
+export function handleRequestCreation(event: RequestCreationEvent): void {
+  let raila = Raila.bind(event.address);
+  let request = new Request(event.params.requestId.toString());
+  request.debtor = event.params.debtor;
+  request.createdAtBlock = event.block.number;
+  let thing = raila.requests(event.params.requestId);
+  request.defaultThreshold = thing.getDefaultThreshold();
+  request.status = "Open";
 
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-
-  entity.save()
-}
-
-export function handleApprovalForAll(event: ApprovalForAllEvent): void {
-  let entity = new ApprovalForAll(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.owner = event.params.owner
-  entity.operator = event.params.operator
-  entity.approved = event.params.approved
-
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-
-  entity.save()
-}
-
-export function handleLoanRepayment(event: LoanRepaymentEvent): void {
-  let entity = new LoanRepayment(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.requestId = event.params.requestId
-  entity.repaidAmount = event.params.repaidAmount
-  entity.pendingDebt = event.params.pendingDebt
-
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-
-  entity.save()
+  request.save();
 }
 
 export function handleRequestCanceled(event: RequestCanceledEvent): void {
-  let entity = new RequestCanceled(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.requestId = event.params.requestId
+  let request = Request.load(event.params.requestId.toString());
+  if (!request) return;
+  request.status = "Canceled";
 
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-
-  entity.save()
+  request.save();
 }
 
-export function handleRequestCreation(event: RequestCreationEvent): void {
-  let entity = new RequestCreation(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.debtor = event.params.debtor
-  entity.requestId = event.params.requestId
-  entity.requestMetadata = event.params.requestMetadata
+export function handleLoanRepayment(event: LoanRepaymentEvent): void {
+  let loan = Loan.load(event.params.requestId.toString());
+  if (!loan) return;
+  loan.totalDebt = event.params.pendingDebt;
+  loan.repaidAmount = event.params.repaidAmount;
 
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
-
-  entity.save()
+  loan.save();
 }
 
-export function handleTransfer(event: TransferEvent): void {
-  let entity = new Transfer(
-    event.transaction.hash.concatI32(event.logIndex.toI32())
-  )
-  entity.from = event.params.from
-  entity.to = event.params.to
-  entity.tokenId = event.params.tokenId
+//? Evento transfer es usado para crear loans, para destruirlas y para cambiar el estado de creditor de un loan existente. Son tres funcionalidades completamente diferentes e independientes
+// export function handleTransfer(event: TransferEvent): void {
+//   if(event.params.from === 0){
 
-  entity.blockNumber = event.block.number
-  entity.blockTimestamp = event.block.timestamp
-  entity.transactionHash = event.transaction.hash
+//   }
+//   else(event.params.to == 1){
 
-  entity.save()
-}
+//   }
+  
+//   let loan = Loan.load(event.params.tokenId.toString());
+//   if (!loan) return;
+
+//   loan.creditor = event.params.to;
+
+//   loan.save();
+// }
+//! to fix
+
