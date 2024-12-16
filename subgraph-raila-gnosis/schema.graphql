@@ -1,0 +1,30 @@
+enum Status {
+  Open
+  Lent
+  Canceled
+}
+
+## ! indica que es obligatorio o no, no tenerlo es (opcional)
+
+type Request @entity {
+  id: ID! ## MEANS STRING
+  loan: Loan
+  debtor: Bytes!
+  createdAtBlock: BigInt!
+  defaultThreshold: BigInt!
+  status: Status!
+  canceledAt: BigInt
+}
+
+type Loan @entity {
+  id: ID!
+  request: Request!
+  creditor: Bytes!
+  fundedAt: BigInt!
+  lastUpdatedAt: BigInt!
+  feeRate: BigInt!
+  interestRatePerSecond: String!
+  originalDebt: BigInt!
+  totalDebt: BigInt!
+  repaidAmount: BigInt!
+}
