@@ -30,10 +30,15 @@ contract PolloCoin is ERC20 {
     }
 }
 
+contract EmptyReceiver {
+
+}
+
 contract RailaTest is Test {
     address alice = address(1);
     address bob = address(2);
     address eve = address(3);
+    address charlie = address(10);
     address governor = address(4);
     address treasury = address(5);
     address deployer = address(6);
@@ -164,7 +169,8 @@ contract CreateRequest is RailaTest {
 
     function test_RequestReads() public {
         vm.prank(alice);
-        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
+        uint256 requestId = raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
+        assertEq(requestId, 1);
         // must mutate requestCounter, add reference borrower => request, and request data
         assertEq(raila.lastRequestId(), 1);
         assertEq(raila.borrowerToRequestId(aliceH), 1);
@@ -475,6 +481,26 @@ contract AcceptRequest is RailaTest {
         vm.expectRevert(); // not necessarily reverts with NotPaid; most ERC20 revert
         vm.prank(bob);
         raila.acceptRequest(1);
+    }
+
+    function test_AcceptingRequestUsesLatestFeeRate() public {
+        uint16 currentFeeRate = raila.FEE_RATE();
+        vm.prank(bob);
+        usd.approve(address(raila), 2 ether);
+        vm.prank(bob);
+        raila.acceptRequest(1);
+        (,,,,,, uint16 feeRate1,,,,) = raila.requests(1);
+        vm.assertEq(currentFeeRate, feeRate1);
+
+        vm.prank(governor);
+        raila.changeFeeRate(1000);
+        vm.prank(eve);
+        uint256 newReqId = raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
+        vm.assertEq(newReqId, 2);
+        vm.prank(bob);
+        raila.acceptRequest(2);
+        (,,,,,, uint16 feeRate2,,,,) = raila.requests(2);
+        vm.assertEq(1000, feeRate2);
     }
 }
 
@@ -950,7 +976,156 @@ contract PayLoan is RailaTest {
     }
 }
 
+contract NFTStuff is RailaTest {
+    IProofOfHumanity poh;
+    ERC20 usd;
+    Raila raila;
+
+    function setUp() public {
+        poh = new MockPoH();
+        vm.prank(bob);
+        usd = new PolloCoin(100 ether);
+        raila = new Raila(governor, treasury, 86400 * 90, INTEREST_RATE_MAX, usd, poh, 500);
+        vm.prank(alice);
+        raila.createRequest(1 ether, INTEREST_RATE_30_YEAR, 2 ether, "");
+        vm.prank(bob);
+        usd.approve(address(raila), 1 ether);
+        vm.prank(bob);
+        raila.acceptRequest(1);
+    }
+
+    function test_Approve() public {
+        vm.prank(bob);
+        raila.approve(charlie, 1);
+    }
+
+    function test_ApproveLogs() public {
+        vm.expectEmit(true, true, true, false, address(raila));
+        emit IERC721.Approval(bob, charlie, 1);
+        vm.prank(bob);
+        raila.approve(charlie, 1);
+    }
+
+    function test_ApproveReads() public {
+        vm.prank(bob);
+        raila.approve(charlie, 1);
+        vm.assertEq(raila.getApproved(1), charlie);
+        // creditor is not yet charlie, still bob
+        (,,,address creditor,,,,,,,) = raila.requests(1);
+        vm.assertEq(creditor, bob);
+        // equivalent
+        vm.assertEq(raila.ownerOf(1), bob);
+    }
+
+    function test_EveCannotApprove() public {
+        vm.expectRevert(Raila.NotCreditor.selector);
+        vm.prank(eve);
+        raila.approve(charlie, 1);
+    }
+
+    function test_ApproveForAll() public {
+        vm.prank(bob);
+        raila.setApprovalForAll(charlie, true);
+    }
+
+    function test_ApproveForAllLogs() public {
+        vm.expectEmit(true, true, false, true, address(raila));
+        emit IERC721.ApprovalForAll(bob, charlie, true);
+        vm.prank(bob);
+        raila.setApprovalForAll(charlie, true);
+    }
+
+    function test_ApproveForAllReads() public {
+        vm.prank(bob);
+        raila.setApprovalForAll(charlie, true);
+        vm.assertEq(raila.isApprovedForAll(bob, charlie), true);
+        vm.assertEq(raila.isApprovedForAll(charlie, bob), false); // not other way around
+    }
+
+    function test_TransferFrom() public {
+        vm.prank(bob);
+        raila.transferFrom(bob, charlie, 1);
+    }
+
+    function test_TransferFromLogs() public {
+        vm.expectEmit(true, true, true, false, address(raila));
+        emit IERC721.Transfer(bob, charlie, 1);
+        vm.prank(bob);
+        raila.transferFrom(bob, charlie, 1);
+    }
+
+    function test_TransferFromReads() public {
+        vm.prank(bob);
+        raila.transferFrom(bob, charlie, 1);
+        vm.assertEq(raila.ownerOf(1), charlie);
+    }
+
+    function test_TransferFromApproval() public {
+        // eve cannot seize loan
+        vm.expectRevert(Raila.NotApproved.selector);
+        vm.prank(eve);
+        raila.transferFrom(bob, charlie, 1);
+        // charlie can, if bob approves him
+        vm.prank(bob);
+        raila.approve(charlie, 1);
+        vm.prank(charlie);
+        raila.transferFrom(bob, charlie, 1);
+        // bounce it back to bob, then try to transfer it again. approval was consumed.
+        vm.prank(charlie);
+        raila.transferFrom(charlie, bob, 1);
+        vm.expectRevert(Raila.NotApproved.selector);
+        vm.prank(charlie);
+        raila.transferFrom(bob, charlie, 1);
+        // now use approveForAll, charlie will be able to move it as long as held by bob
+        vm.prank(bob);
+        raila.setApprovalForAll(charlie, true);
+        vm.prank(charlie);
+        raila.transferFrom(bob, charlie, 1);
+        vm.prank(charlie);
+        raila.transferFrom(charlie, bob, 1);
+        vm.prank(charlie);
+        raila.transferFrom(bob, eve, 1);
+        // but not if held by eve, because eve does not have approvalForAll to charlie
+        vm.expectRevert(Raila.NotApproved.selector);
+        vm.prank(charlie);
+        raila.transferFrom(eve, bob, 1);
+        // seeing charlie negligence, bob removes his approvalForAll
+        vm.expectEmit(true, true, false, true, address(raila));
+        emit IERC721.ApprovalForAll(bob, charlie, false);
+        vm.prank(bob);
+        raila.setApprovalForAll(charlie, false);
+        vm.assertEq(raila.isApprovedForAll(bob, charlie), false);
+        // eve plays nice and gives it back to bob. once charlie has no approvalForAll, he can no longer seize
+        vm.prank(eve);
+        raila.transferFrom(eve, bob, 1);
+        vm.expectRevert(Raila.NotApproved.selector);
+        vm.prank(charlie);
+        raila.transferFrom(bob, charlie, 1);
+    }
+
+    function test_CannotTransferToZero() public {
+        vm.expectRevert(Raila.ERC721InvalidReceiver.selector);
+        vm.prank(bob);
+        raila.transferFrom(bob, address(0), 1);
+    }
+
+    function test_SafeTransferFrom() public {
+        vm.prank(bob);
+        raila.safeTransferFrom(bob, charlie, 1);
+    }
+
+    function test_SafeTransferFromData() public {
+        vm.prank(bob);
+        raila.safeTransferFrom(bob, charlie, 1, "data");
+    }
+
+    function test_SafeTransferToEmptyReceiver() public {
+        EmptyReceiver receiver = new EmptyReceiver();
+        vm.expectRevert(Raila.ERC721InvalidReceiver.selector);
+        vm.prank(bob);
+        raila.safeTransferFrom(bob, address(receiver), 1, "data");
+    }
+}
+
 // misc checks:
 // 2 loans with equal ogd and distinct interestRates grow at different speeds
-// changing the contract's feeRate doesnt modify the (already filed) request feeRate
-// cant transfer to address 0

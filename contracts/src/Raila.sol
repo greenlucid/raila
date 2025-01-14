@@ -69,7 +69,7 @@ contract Raila is IERC721, IERC721Metadata {
     mapping(bytes20 => uint256) public borrowerToRequestId;
     mapping(uint256 => Request) public requests;
     mapping(address => uint256) public balanceOf; // for erc721 balanceOf
-    mapping(uint256 => address) public getApproved; // for erc721 getApproveds
+    mapping(uint256 => address) public getApproved; // for erc721 getApproved
     mapping(address => mapping(address => bool)) public isApprovedForAll; //for erc721 isApprovedForAll
     uint256 public lastRequestId;
 
@@ -283,7 +283,7 @@ contract Raila is IERC721, IERC721Metadata {
     }
 
     function _transfer(address sender, address receiver, uint256 tokenId) internal {
-        if (receiver == address(0)) revert ERC721InvalidReceiver(address(0));
+        if (receiver == address(0)) revert ERC721InvalidReceiver();
         Request storage request = requests[tokenId];
         balanceOf[sender]--;
         balanceOf[receiver]++;
@@ -312,7 +312,7 @@ contract Raila is IERC721, IERC721Metadata {
                 require(retval == IERC721Receiver.onERC721Received.selector, "Invalid Receiver");
             } catch (bytes memory reason) {
                 if (reason.length == 0) {
-                    revert ERC721InvalidReceiver(to);
+                    revert ERC721InvalidReceiver();
                 } else {
                     /// @solidity memory-safe-assembly
                     assembly {
@@ -379,5 +379,5 @@ contract Raila is IERC721, IERC721Metadata {
     error NotCreditor();
     error NotGovernor();
     error NotApproved();
-    error ERC721InvalidReceiver(address receiver);
+    error ERC721InvalidReceiver();
 }

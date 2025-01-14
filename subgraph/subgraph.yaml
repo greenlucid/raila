@@ -1,0 +1,44 @@
+specVersion: 1.0.0
+indexerHints:
+  prune: auto
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: Raila
+    network: gnosis
+    source:
+      address: "0xc98acA46d4223E92B6D634E00182a20e3681975C"
+      abi: Raila
+      startBlock: 38036718
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Approval
+        - ApprovalForAll
+        - LoanForgiven
+        - LoanRepayment
+        - RequestCanceled
+        - RequestCreation
+        - Transfer
+      abis:
+        - name: Raila
+          file: ./abis/Raila.json
+      eventHandlers:
+        - event: Approval(indexed address,indexed address,indexed uint256)
+          handler: handleApproval
+        - event: ApprovalForAll(indexed address,indexed address,bool)
+          handler: handleApprovalForAll
+        - event: LoanForgiven(indexed uint256,uint256)
+          handler: handleLoanForgiven
+        - event: LoanRepayment(indexed uint256,uint256,uint256)
+          handler: handleLoanRepayment
+        - event: RequestCanceled(indexed uint256)
+          handler: handleRequestCanceled
+        - event: RequestCreation(indexed bytes20,indexed uint256,string)
+          handler: handleRequestCreation
+        - event: Transfer(indexed address,indexed address,indexed uint256)
+          handler: handleTransfer
+      file: ./src/raila.ts
