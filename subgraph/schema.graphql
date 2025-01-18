@@ -1,6 +1,43 @@
-type ExampleEntity @entity {
-  id: Bytes!
-  count: BigInt!
-  owner: Bytes! # address
-  approved: Bytes! # address
+type Request @entity {
+  """index of requests; or tokenId"""
+  id: ID!
+  """If Loan was created, links to Loan"""
+  loan: Loan
+  """humanityID of debtor"""
+  debtor: Bytes!
+  """Block the Request was created in. wait shouldnt i store createdAt instead as timestamp"""
+  createdAtBlock: BigInt!
+  """Amount that will signal the loan was defaulted"""
+  defaultThreshold: BigInt!
+  """How quickly does debt grow. This is on perSecond units"""
+  interestRatePerSecond: BigInt!
+  """How much is requested"""
+  amount: BigInt!
+  """If cancelled, timestamp in which it was cancelled"""
+  canceledAt: BigInt
+  """IPFS URI containing metadata from the loan"""
+  metadata: String!
+}
+
+type Loan @entity {
+  """index of requests; or tokenId"""
+  id: ID!
+  """Request that originated this Loan"""
+  request: Request!
+  """Address of the current creditor of the Loan"""
+  creditor: Bytes!
+  """When the Loan was first created"""
+  fundedAt: BigInt!
+  """Max between time of lastUpdate, and fundedAt + MIN_INTEREST_PERIOD"""
+  lastUpdatedAt: BigInt!
+  """Fee Rate at the time the Loan was created"""
+  feeRate: Int!
+  """How much from original debt is pending payment"""
+  originalDebt: BigInt!
+  """How much debt is pending"""
+  totalDebt: BigInt!
+  """How much has been paid, in total"""
+  repaidAmount: BigInt!
+  """When was Loan fully paid, or forgiven"""
+  destroyedAt: BigInt
 }

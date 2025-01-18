@@ -16,21 +16,12 @@ dataSources:
       apiVersion: 0.0.7
       language: wasm/assemblyscript
       entities:
-        - Approval
-        - ApprovalForAll
-        - LoanForgiven
-        - LoanRepayment
-        - RequestCanceled
-        - RequestCreation
-        - Transfer
+        - Request
+        - Loan
       abis:
         - name: Raila
           file: ./abis/Raila.json
       eventHandlers:
-        - event: Approval(indexed address,indexed address,indexed uint256)
-          handler: handleApproval
-        - event: ApprovalForAll(indexed address,indexed address,bool)
-          handler: handleApprovalForAll
         - event: LoanForgiven(indexed uint256,uint256)
           handler: handleLoanForgiven
         - event: LoanRepayment(indexed uint256,uint256,uint256)
@@ -41,4 +32,4 @@ dataSources:
           handler: handleRequestCreation
         - event: Transfer(indexed address,indexed address,indexed uint256)
           handler: handleTransfer
-      file: ./src/raila.ts
+      file: ./src/mapping.ts
