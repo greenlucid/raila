@@ -11,6 +11,8 @@ import {IERC721Receiver} from "@openzeppelin-contracts/interfaces/IERC721Receive
 import {Base64} from "@openzeppelin-contracts/utils/Base64.sol";
 import "forge-std/console.sol";
 
+import "./RailaNFTDescriptor.sol";
+
 /// @title Raila
 contract Raila is IERC721, IERC721Metadata {
     enum RequestStatus {
@@ -59,6 +61,8 @@ contract Raila is IERC721, IERC721Metadata {
     // protect borrowers from eternal debt with a sensible max rate
     UD60x18 public MAXIMUM_INTEREST_RATE;
 
+    RailaNFTDescriptor public NFT_DESCRIPTOR;
+
     // basis points. fees are only paid after the initial loan is covered.
     // fees are sent to raila treasury (maintenance, bounties, server costs...)
     uint16 public FEE_RATE;
@@ -94,6 +98,8 @@ contract Raila is IERC721, IERC721Metadata {
         USD = IERC20(_usdToken);
         PROOF_OF_HUMANITY = IProofOfHumanity(_poh);
         FEE_RATE = _feeRate;
+
+        NFT_DESCRIPTOR = new RailaNFTDescriptor(Raila(this));
     }
 
     function createRequest(
@@ -269,6 +275,10 @@ contract Raila is IERC721, IERC721Metadata {
         MAXIMUM_INTEREST_RATE = _interest;
     }
 
+    function changeNftDescriptor(RailaNFTDescriptor descriptor) external onlyGovernor {
+        NFT_DESCRIPTOR = descriptor;
+    }
+
     // erc721 stuff
 
     string public constant name = "Raila";
@@ -350,15 +360,8 @@ contract Raila is IERC721, IERC721Metadata {
         return (requests[tokenId].creditor);
     }
 
-    function tokenURI(uint256 tokenId) external pure returns (string memory) {
-        return string(
-            abi.encodePacked(
-                "data:application/json;base64,",
-                Base64.encode(
-                    bytes(abi.encodePacked('{"name":"Raila Loan","description":"A loan with number ', tokenId, '"}'))
-                )
-            )
-        );
+    function tokenURI(uint256 tokenId) external view returns (string memory) {
+        return NFT_DESCRIPTOR.constructTokenURI(tokenId);
     }
 
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
